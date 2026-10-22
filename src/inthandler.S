@@ -300,12 +300,21 @@ notcart:
 	sb zero, (t0)
 
 thread_schedule_from_interrupt:
-	# Save full exception context in preparation for stack switching
+	# Save full exception context in preparation for stack switching.
+	# If an interrupt handler used the FPU, the COP1 unusable exception it
+	# raised has already saved the interrupted context's FPU registers into
+	# this frame, and left COP1 enabled. The handler has overwritten those
+	# registers since, so saving them again would corrupt the interrupted
+	# thread's FPU state: only save them if COP1 is still disabled.
 	mfc0 t0, C0_SR
+	and t1, t0, SR_CU1
+	bnez t1, 1f
+	nop
 	or t0, SR_CU1
 	mtc0 t0, C0_SR
 	jal save_fpu_regs
 	move a0, sp
+1:
 	jal finalize_exception_frame
 	nop
 
