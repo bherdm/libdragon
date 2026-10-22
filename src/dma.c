@@ -19,6 +19,7 @@
 #include "interrupt_internal.h"
 #include "kernel/kernel_internal.h"
 #include "kirq.h"
+#include "exception.h"
 #include "mi.h"
 #include "accounting_internal.h"
 
@@ -84,6 +85,19 @@ static bool __pi_queue_full(void)
     return (pi_msgs_widx + 1) % MAX_PI_MSGS == pi_msgs_ridx;
 }
 
+/**
+ * @brief Whether a wait for the PI can sleep until the PI interrupt.
+ *
+ * Only a thread can block (an exception handler, eg. one printing a crash
+ * report, cannot), and only a running DMA raises the PI interrupt that wakes
+ * it: an IO access in flight (PI_STATUS_IO_BUSY, eg. right after io_write)
+ * raises none. Every other wait polls the PI instead.
+ */
+static bool pi_wait_can_sleep(void)
+{
+    return __kernel && !exception_is_running() && pi_state == PI_STATE_RUNNING;
+}
+
 static void pi_manual_interrupt_poll(void)
 {
     // Poll PI interrupts manually. This is required when interrupts are
@@ -94,6 +108,11 @@ static void pi_manual_interrupt_poll(void)
         PI_regs->status = PI_CLEAR_INTERRUPT;
         pi_interrupt();
     }
+
+    // An entry enqueued while the PI was busy with an IO access was not
+    // started (pi_enqueue only starts it on an idle PI), and no interrupt
+    // will come to start it: start it here, once the PI is free.
+    pi_poll();
 }
 
 static void pi_start_read_raw(void *ram_address, pi_addr_t pi_address, unsigned long len)
@@ -285,7 +304,7 @@ static uint64_t pi_enqueue(uint8_t type, void *ram, pi_addr_t pi_addr, unsigned 
             if (!__pi_queue_full())
                 break;
             enable_interrupts();
-            if (__kernel)
+            if (pi_wait_can_sleep())
                 kirq_wait(&w);
             disable_interrupts();
         }
@@ -440,7 +459,7 @@ void dma_wait_started(uint64_t ticket)
         return;
 
     ACCT_SCOPE(ACCT_CAT_PI) while (!dma_started(ticket)) {
-        if (__kernel)
+        if (pi_wait_can_sleep())
             kirq_wait(&w);
     }
 }
@@ -456,7 +475,7 @@ void dma_wait_finished(uint64_t ticket)
         return;
 
     ACCT_SCOPE(ACCT_CAT_PI) while (!dma_finished(ticket)) {
-        if (__kernel)
+        if (pi_wait_can_sleep())
             kirq_wait(&w);
     }
 }
@@ -475,7 +494,7 @@ static uint32_t dma_wait_and_disable_interrupts(void)
     __enable_interrupts(sr);
 
     ACCT_SCOPE(ACCT_CAT_PI) while (1) {
-        if (__kernel)
+        if (pi_wait_can_sleep())
             kirq_wait(&w);
 
         sr = __disable_interrupts();
