@@ -232,6 +232,10 @@ interrupt:
 	jal get_ticks
 	nop
 
+	# Reload cause register: get_ticks is C code, and nothing guarantees it
+	# leaves t8 alone (it happens to, being a leaf using $2-$5 today).
+	lw cause, STACK_CR(sp)
+
 	/* check for "pre-NMI" (reset) */
 	andi t0, cause, 0x1000
 	beqz t0, notprenmi
