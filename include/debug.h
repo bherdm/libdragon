@@ -210,7 +210,9 @@ extern "C" {
 	 * 
 	 * Moreover, this function also has a special codepath to allow
 	 * writing debug messages during interrupts or exceptions, when standard
-	 * I/O functions cannot be used safely.
+	 * I/O functions cannot be used safely. There, floats are not formatted
+	 * (formatting one allocates memory): each prints as "<float>", and the
+	 * line says so at its end.
 	 */
 	__attribute__((format(printf, 1, 2)))
 	void debugf(const char *msg, ...);

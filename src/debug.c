@@ -361,6 +361,100 @@ void debug_close_sdfs(void)
 	}
 }
 
+/**
+ * @brief vsnprintf for interrupt and exception handlers: floats are not formatted.
+ *
+ * newlib formats a float through _dtoa_r, which allocates (and so takes the
+ * malloc lock, or edits the interrupted thread's heap state behind its back).
+ * So each conversion is formatted on its own with snprintf, except floats,
+ * which are consumed and printed as "<float>"; a line that had any says so
+ * at its end.
+ *
+ * @return The length of the string written into @p buf (at most size-1)
+ */
+static int vsnprintf_isr(char *buf, size_t size, const char *msg, va_list args)
+{
+	static const char note[] = " (floats are not formatted in an interrupt)";
+	size_t n = 0;
+	bool had_float = false;
+
+	#define ISR_PUT(s, len) ({ \
+		size_t __len = (len); \
+		if (__len > size - 1 - n) __len = size - 1 - n; \
+		memcpy(buf + n, (s), __len); n += __len; \
+	})
+
+	while (*msg && n < size - 1) {
+		if (*msg != '%') {
+			ISR_PUT(msg, 1); msg++;
+			continue;
+		}
+		// One conversion: copy its spec, then format it with the matching
+		// argument type. A '*' width or precision takes an int argument.
+		char spec[24]; size_t sl = 0;
+		spec[sl++] = *msg++;
+		int stars[2]; int nstars = 0;
+		while (*msg && strchr("-+ #0123456789.*hlLqjzt", *msg) && sl < sizeof(spec) - 2) {
+			if (*msg == '*' && nstars < 2) stars[nstars++] = va_arg(args, int);
+			spec[sl++] = *msg++;
+		}
+		char conv = *msg ? *msg++ : '\0';
+		spec[sl++] = conv; spec[sl] = '\0';
+		bool is_l = strstr(spec, "l") != NULL, is_ll = strstr(spec, "ll") != NULL;
+
+		char out[64]; int len = 0;
+		#define ISR_FMT(arg) (nstars == 2 ? snprintf(out, sizeof(out), spec, stars[0], stars[1], arg) : \
+		                      nstars == 1 ? snprintf(out, sizeof(out), spec, stars[0], arg) : \
+		                                    snprintf(out, sizeof(out), spec, arg))
+		switch (conv) {
+		case '%': len = 1; out[0] = '%'; break;
+		case 'a': case 'A': case 'e': case 'E': case 'f': case 'F': case 'g': case 'G':
+			if (strchr(spec, 'L')) (void)va_arg(args, long double);
+			else (void)va_arg(args, double);
+			len = 7; memcpy(out, "<float>", 7);
+			had_float = true;
+			break;
+		case 's':
+			// A string can be longer than out: copy it directly (no width handling).
+			if (nstars == 0 && sl == 2) {
+				const char *s = va_arg(args, const char*);
+				if (!s) s = "(null)";
+				ISR_PUT(s, strlen(s));
+				continue;
+			}
+			len = ISR_FMT(va_arg(args, const char*)); break;
+		case 'c': len = ISR_FMT(va_arg(args, int)); break;
+		case 'p': len = ISR_FMT(va_arg(args, void*)); break;
+		case 'n': (void)va_arg(args, void*); break;
+		case 'd': case 'i': case 'u': case 'o': case 'x': case 'X':
+			if (is_ll || strchr(spec, 'q') || strchr(spec, 'j')) len = ISR_FMT(va_arg(args, long long));
+			else if (is_l || strchr(spec, 'z') || strchr(spec, 't')) len = ISR_FMT(va_arg(args, long));
+			else len = ISR_FMT(va_arg(args, int));
+			break;
+		default:
+			// Unknown conversion: print it as written; its argument, if any,
+			// cannot be told apart, so stop formatting this line here.
+			ISR_PUT(spec, sl);
+			msg = "";
+			continue;
+		}
+		#undef ISR_FMT
+		if (len > (int)sizeof(out) - 1) len = sizeof(out) - 1;
+		if (len > 0) ISR_PUT(out, len);
+	}
+
+	if (had_float) {
+		// Put the note before the line's final newline, if it has one.
+		bool nl = n > 0 && buf[n-1] == '\n';
+		if (nl) n--;
+		ISR_PUT(note, sizeof(note) - 1);
+		if (nl) ISR_PUT("\n", 1);
+	}
+	#undef ISR_PUT
+	buf[n] = '\0';
+	return n;
+}
+
 static void debugfv(const char *msg, va_list args)
 {
 	// Debug output. The goal is to call __stderr_write() with the final output
@@ -373,8 +467,8 @@ static void debugfv(const char *msg, va_list args)
 	// fixed-size vsnprintf buffer.
 	if (__kernel && exception_is_running()) {
 		char buf[256] __attribute__((uninitialized));
-		int n = vsnprintf(buf, sizeof(buf), msg, args);
-		if (n > 0) __stderr_write(buf, n < sizeof(buf) ? n : sizeof(buf));
+		int n = vsnprintf_isr(buf, sizeof(buf), msg, args);
+		if (n > 0) __stderr_write(buf, n);
 		return;
 	}
 
