@@ -6,6 +6,7 @@
  * 
  */
 #include "ksemaphore.h"
+#include "interrupt.h"
 #include "kernel_internal.h"
 
 void ksemaphore_init(ksemaphore_t *sem, int value)
@@ -21,12 +22,26 @@ void ksemaphore_destroy(ksemaphore_t *sem)
     kmutex_destroy(&sem->mutex);
 }
 
+/**
+ * @brief Change the count, safely against ksemaphore_post_isr.
+ *
+ * The mutex keeps threads apart, but an interrupt handler posts without it:
+ * a thread's read-modify-write of the count must not straddle that increment,
+ * or one of the two changes is lost.
+ */
+static void sem_count_add(ksemaphore_t *sem, int delta)
+{
+    disable_interrupts();
+    sem->count += delta;
+    enable_interrupts();
+}
+
 void ksemaphore_wait(ksemaphore_t *sem)
 {
     kmutex_lock(&sem->mutex);
     while (sem->count <= 0)
         kcond_wait(&sem->cond, &sem->mutex);
-    sem->count--;
+    sem_count_add(sem, -1);
     kmutex_unlock(&sem->mutex);
 }
 
@@ -42,7 +57,7 @@ bool ksemaphore_try_wait(ksemaphore_t *sem, uint32_t ticks_)
         ticks -= get_ticks() - now;
     }
     if (sem->count > 0) {
-        sem->count--;
+        sem_count_add(sem, -1);
         ret = true;
     }
     kmutex_unlock(&sem->mutex);
@@ -52,7 +67,7 @@ bool ksemaphore_try_wait(ksemaphore_t *sem, uint32_t ticks_)
 void ksemaphore_post(ksemaphore_t *sem)
 {
     kmutex_lock(&sem->mutex);
-    sem->count++;
+    sem_count_add(sem, 1);
     kcond_signal(&sem->cond);
     kmutex_unlock(&sem->mutex);
 }
