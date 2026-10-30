@@ -123,9 +123,19 @@ typedef struct
     filesystem_t *fs;
     /** @brief Mutex used to protect concurrent accesses to the filesystem */
     kmutex_t lock;
-    /** @brief True if a lock is needed for this filesystem */
-    bool need_lock;
 } fs_mapping_t;
+
+/**
+ * @brief Whether a call into a filesystem must hold its lock
+ *
+ * Decided at each call, not when the filesystem is attached: one attached
+ * before kernel_init() (eg. rom:/ and sd:/, mounted early in main) must be
+ * locked once there are threads to share it.
+ */
+static bool fs_need_lock(fs_mapping_t *fsm)
+{
+    return __kernel && !fsm->fs->thread_safe;
+}
 
 /** @brief Extract bits from word */
 #define BITS(v, b, e)  ((unsigned int)(v) << (31-(e)) >> (31-(e)+(b))) 
@@ -361,7 +371,6 @@ int attach_filesystem( const char * const prefix, filesystem_t *filesystem )
 
     /* Initialize the mutex */
     kmutex_init(&filesystems[handle].lock, KMUTEX_STANDARD);
-    filesystems[handle].need_lock = __kernel && !filesystem->thread_safe;
 
     /* All went well */
     return 0;
@@ -661,9 +670,9 @@ int close( int fileno )
     kthread_unlock();
 
     /* Tell the filesystem to close the file */
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->close( handle );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
@@ -757,9 +766,9 @@ int fstat( int fileno, struct stat *st )
             return -1;
         }
 
-        if (fsm->need_lock) kmutex_lock(&fsm->lock);
+        if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
         int ret = fsm->fs->fstat( *handle_ptr, st );
-        if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+        if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
         return ret;
     }
 }
@@ -977,9 +986,9 @@ int lseek( int file, int ptr, int dir )
         return -1;
     }
 
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->lseek( *handle_ptr, ptr, dir );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
@@ -1038,9 +1047,9 @@ int open( const char *file, int flags, ... )
     errno = 0;
 
     /* Use the old open() call that will cause an additional allocation */
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     void *handle = fsm->fs->open( (char *)( file + __strlen( filesystems[fs_index].prefix ) ), flags );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
 
     if( handle )
     {
@@ -1107,9 +1116,9 @@ int read( int fileno, char *ptr, int len )
             return -1;
         }
 
-        if (fsm->need_lock) kmutex_lock(&fsm->lock);
+        if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
         int ret = fsm->fs->read( *handle_ptr, (uint8_t *)ptr, len );
-        if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+        if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
         return ret;
     }
 }
@@ -1243,9 +1252,9 @@ int stat( const char *file, struct stat *st )
     /* Use stat function when available, and fstat as a fallback */
     if( fsm != 0 && mapping >= 0 && fsm->fs->stat )
     {
-        if (fsm->need_lock) kmutex_lock(&fsm->lock);
+        if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
         int ret = fsm->fs->stat( (char *)file + __strlen( filesystems[mapping].prefix ) - 1, st );
-        if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+        if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
         return ret;
     }
 
@@ -1323,9 +1332,9 @@ int unlink( char *name )
     }
 
     /* Must offset past the prefix */
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->unlink( name + __strlen( filesystems[mapping].prefix ) );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
@@ -1361,9 +1370,9 @@ int ioctl(int fd, unsigned long cmd, void *argp)
         errno = ENOTTY;
         return -1;
     }
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->ioctl(*handle_ptr, cmd, argp);
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
@@ -1430,9 +1439,9 @@ int write( int file, char *ptr, int len )
             return -1;
         }
 
-        if (fsm->need_lock) kmutex_lock(&fsm->lock);
+        if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
         int ret = fsm->fs->write( *handle_ptr, (uint8_t *)ptr, len );
-        if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+        if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
         return ret;
     }
 }
@@ -1467,9 +1476,9 @@ int ftruncate( int file, off_t length )
         return -1;
     }
 
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->ftruncate( *handle_ptr, length );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
@@ -1519,9 +1528,9 @@ int dir_findfirst( const char * const path, dir_t *dir )
     __builtin_memset( dir, 0, sizeof( dir_t ) );
     dir->d_size = -1;
 
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->findfirst( (char *)path + __strlen( filesystems[mapping].prefix ) - 1, dir );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
@@ -1543,11 +1552,11 @@ int dir_findnext( const char * const path, dir_t *dir )
         return -2;
     }
 
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->findnext2 ? 
         fsm->fs->findnext2( path + __strlen( filesystems[mapping].prefix ) - 1, dir ) : 
         fsm->fs->findnext( dir );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
@@ -1578,9 +1587,9 @@ int mkdir( const char * path, mode_t mode )
         return -1;
     }
     
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->mkdir( (char *)path + __strlen( filesystems[mapping].prefix ) - 1, mode );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
@@ -1619,9 +1628,9 @@ int utimes(const char *path, const struct timeval times[2])
         times = now;
     }
 
-    if (fsm->need_lock) kmutex_lock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_lock(&fsm->lock);
     int ret = fsm->fs->utimes( (char *)path + __strlen( filesystems[mapping].prefix ) - 1, times );
-    if (fsm->need_lock) kmutex_unlock(&fsm->lock);
+    if (fs_need_lock(fsm)) kmutex_unlock(&fsm->lock);
     return ret;
 }
 
