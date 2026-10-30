@@ -470,7 +470,10 @@ void kernel_close(void)
 
 	assertf(th_count == 1, "not all threads were killed");
 	#ifndef NDEBUG
-	assertf(__kernel_all_threads == NULL, "all threads list not empty");
+	// Only the main thread is left in the list: it is never freed, so unlink
+	// it here, for a later kernel_init() to start from an empty list.
+	assertf(__kernel_all_threads == &th_main && th_main.all_next == NULL, "all threads list not empty");
+	__kernel_all_threads = NULL;
 	#endif
 
 	th_cur = NULL;
