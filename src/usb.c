@@ -1393,6 +1393,24 @@ static void usb_everdrive_read(void)
     @return TRUE if there was error during command execution, otherwise FALSE
 ==============================*/
 
+#ifdef LIBDRAGON
+extern volatile int __sc64_regs_busy;
+void __sc64_regs_take(void);
+void __sc64_regs_give(void);
+
+/*==============================
+    usb_sc64_regs_unavailable
+    Whether an interrupt handler must leave the SC64 alone: a thread owns its
+    command registers, mid-command, and can't run until the handler returns
+    @return TRUE if the caller must skip its SC64 access
+==============================*/
+
+static char usb_sc64_regs_unavailable(void)
+{
+    return exception_is_running() && __sc64_regs_busy;
+}
+#endif
+
 #ifndef LIBDRAGON
 static char usb_sc64_execute_cmd(u8 cmd, u32 *args, u32 *result)
 #else
@@ -1402,11 +1420,12 @@ char usb_sc64_execute_cmd(u8 cmd, u32 *args, u32 *result)
     u32 sr;
 
     #ifdef LIBDRAGON
-        // The command registers are shared with libcart's SC64 SD driver, and
-        // debug output can reach this from another thread or an interrupt
-        // handler: run the whole command with interrupts disabled, so nothing
-        // interleaves with it and takes its arguments or its results.
-        disable_interrupts();
+        // The command registers are shared with libcart's SC64 SD driver:
+        // own them for this command (see __sc64_regs_take in libcart), so
+        // nothing interleaves with it and takes its arguments or its results.
+        // An interrupt handler runs alone, and the SC64 entry points skip their
+        // work while a thread owns the registers (usb_sc64_regs_unavailable).
+        if (!exception_is_running()) __sc64_regs_take();
     #endif
 
     // Write arguments if provided
@@ -1434,7 +1453,7 @@ char usb_sc64_execute_cmd(u8 cmd, u32 *args, u32 *result)
     }
 
     #ifdef LIBDRAGON
-        enable_interrupts();
+        if (!exception_is_running()) __sc64_regs_give();
     #endif
 
     // Return error status
@@ -1482,6 +1501,12 @@ static s8 usb_sc64_write(int datatype, const void* data, int size)
     u32 timeout;
     u32 args[2];
     u32 result[2];
+
+    #ifdef LIBDRAGON
+        // From an interrupt handler while a thread is mid-command: skip it
+        if (usb_sc64_regs_unavailable())
+            return 0;
+    #endif
 
     // Return if previous transfer timed out
     usb_sc64_execute_cmd(SC64_CMD_USB_WRITE_STATUS, NULL, result);
@@ -1554,6 +1579,12 @@ static u32 usb_sc64_poll(void)
     u32 size;
     u32 args[2];
     u32 result[2];
+
+    #ifdef LIBDRAGON
+        // From an interrupt handler while a thread is mid-command: skip it
+        if (usb_sc64_regs_unavailable())
+            return 0;
+    #endif
 
     // Get read status and extract packet info
     usb_sc64_execute_cmd(SC64_CMD_USB_READ_STATUS, NULL, result);

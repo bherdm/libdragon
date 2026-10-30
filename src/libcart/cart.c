@@ -7,6 +7,8 @@
 #include "n64sys.h"
 #include "dma.h"
 #include "interrupt.h"
+#include "kernel.h"
+#include "exception.h"
 #include "libcart/cart.h"
 
 #define MI_BASE_REG             0x04300000
@@ -1617,23 +1619,55 @@ static int __sc_sync(void)
 #define SC_SET_DATA0            1
 #define SC_SET_DATA1            2
 
+/* The SC64's command registers are shared with the SC64 USB driver (usb.c),
+   which debug output can drive from another thread or from an interrupt
+   handler: interleaved, two command sequences take each other's arguments and
+   results. A thread owns the registers for one command at a time, between
+   __sc64_regs_take() and __sc64_regs_give(). It waits for them on a mutex,
+   with interrupts enabled, since an SD command keeps the SC64 busy for as long
+   as the transfer takes. An interrupt handler can't wait for a thread: it
+   checks __sc64_regs_busy and skips its access while a thread owns them. */
+extern bool __kernel;
+extern bool __libc_locks_off;
+volatile int __sc64_regs_busy;
+static kmutex_t __sc64_regs_mutex;
+
+/* Whether the registers are taken through the mutex: with threads running,
+   from a thread. Not once the crash screen runs (__libc_locks_off): it has
+   suspended every other thread, one of which may own the registers, and
+   would wait for it forever. */
+static bool __sc64_regs_locked(void)
+{
+    return __kernel && !exception_is_running() && !__libc_locks_off;
+}
+
+void __sc64_regs_take(void)
+{
+    if (__sc64_regs_locked()) kmutex_lock(&__sc64_regs_mutex);
+    __sc64_regs_busy = 1;
+}
+
+void __sc64_regs_give(void)
+{
+    __sc64_regs_busy = 0;
+    if (__sc64_regs_locked()) kmutex_unlock(&__sc64_regs_mutex);
+}
+
 /* One SC64 command: its arguments, the command, the wait for it, and its
-   result in DATA1, all with interrupts disabled. The command registers are
-   shared with the SC64 USB driver (usb.c), which debug output can drive from
-   another thread or an interrupt handler; interleaved with it, the two would
-   take each other's arguments and results. Returns -1 if the command failed. */
+   result in DATA1, owning the command registers throughout. Returns -1 if the
+   command failed. */
 static int __sc_cmd(uint32_t cmd, int set, uint32_t data0, uint32_t data1,
                     uint32_t *result1)
 {
     int ret;
-    disable_interrupts();
+    __sc64_regs_take();
     __sc_sync();
     if (set & SC_SET_DATA0) io_write(SC_DATA0_REG, data0);
     if (set & SC_SET_DATA1) io_write(SC_DATA1_REG, data1);
     io_write(SC_COMMAND_REG, cmd);
     ret = __sc_sync();
     if (result1) *result1 = io_read(SC_DATA1_REG);
-    enable_interrupts();
+    __sc64_regs_give();
     return ret;
 }
 
