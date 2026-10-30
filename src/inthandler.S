@@ -250,6 +250,11 @@ interrupt:
 	lw t1, STACK_SR(sp)
 	and t1, t0
 	sw t1, STACK_SR(sp)
+	# The mask is system-wide (see end_interrupt_gpr): clear it there too,
+	# or every return from an exception would put it back.
+	lw t1, __interrupt_cpu_mask
+	and t1, t0
+	sw t1, __interrupt_cpu_mask
 
 	# Reload cause register (might be clobbered by C code) and test for other interrupts
 	lw cause, STACK_CR(sp)
@@ -384,6 +389,18 @@ end_interrupt:
 	ctc1 t0, $f31
 
 end_interrupt_gpr:
+
+	# The CPU interrupt masks (timer 0x8000, pre-NMI 0x1000, cart 0x800) are
+	# system-wide settings, but every context carries its own copy of SR and
+	# reloads it here, so a set_*_interrupt() call would otherwise reach only
+	# the caller's SR (and from an interrupt handler, not even that). Take
+	# them from __interrupt_cpu_mask instead, whichever context returns.
+	lw t0, STACK_SR(sp)
+	li t1, ~(0x8000 | 0x1000 | 0x800)
+	and t0, t1
+	lw t1, __interrupt_cpu_mask
+	or t0, t1
+	sw t0, STACK_SR(sp)
 
 	# Restore SR. This also disables reentrant exceptions by
 	# restoring the EXL bit into SR

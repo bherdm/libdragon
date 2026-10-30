@@ -44,6 +44,28 @@ int __interrupt_sr = 0;
 /** @brief Number of interrupts that have been triggered since boot */
 volatile int64_t __interrupt_counter = 0;
 
+/** @brief The CPU interrupt masks enabled system-wide (#C0_INTERRUPT_TIMER,
+ *         #C0_INTERRUPT_CART and #C0_INTERRUPT_PRENMI).
+ *
+ * Every context (each thread, and an interrupted interrupt handler) keeps its
+ * own copy of SR and reloads it when an exception returns, so these masks are
+ * kept here and the exception handler writes them into whichever SR it
+ * restores (see end_interrupt_gpr in inthandler.S).
+ */
+volatile uint32_t __interrupt_cpu_mask = 0;
+
+/** @brief Enable or disable one of the CPU interrupt masks, for every context. */
+static void __set_cpu_interrupt(uint32_t mask, int active)
+{
+    disable_interrupts();
+    if (active)
+        __interrupt_cpu_mask |= mask;
+    else
+        __interrupt_cpu_mask &= ~mask;
+    C0_WRITE_STATUS((C0_STATUS() & ~mask) | (__interrupt_cpu_mask & mask));
+    enable_interrupts();
+}
+
 /**
  * @brief Structure of an interrupt callback
  */
@@ -650,38 +672,17 @@ void set_SP_interrupt(int active)
 
 void set_TI_interrupt(int active)
 {
-    if( active )
-    {
-        C0_WRITE_STATUS(C0_STATUS() | C0_INTERRUPT_TIMER);
-    }
-    else
-    {
-        C0_WRITE_STATUS(C0_STATUS() & ~C0_INTERRUPT_TIMER);
-    }
+    __set_cpu_interrupt(C0_INTERRUPT_TIMER, active);
 }
 
 void set_CART_interrupt(int active)
 {
-    if( active )
-    {
-        C0_WRITE_STATUS(C0_STATUS() | C0_INTERRUPT_CART);
-    }
-    else
-    {
-        C0_WRITE_STATUS(C0_STATUS() & ~C0_INTERRUPT_CART);
-    }
+    __set_cpu_interrupt(C0_INTERRUPT_CART, active);
 }
 
 void set_RESET_interrupt(int active)
 {
-    if( active )
-    {
-        C0_WRITE_STATUS(C0_STATUS() | C0_INTERRUPT_PRENMI);
-    }
-    else
-    {
-        C0_WRITE_STATUS(C0_STATUS() & ~C0_INTERRUPT_PRENMI);
-    }
+    __set_cpu_interrupt(C0_INTERRUPT_PRENMI, active);
 }
 
 void set_BB_FLASH_interrupt(int active)
@@ -747,6 +748,7 @@ __attribute__((constructor(120))) void __init_interrupts(void)
         /* Enable interrupts systemwide. We set the global interrupt enable,
            and then specifically enable RCP interrupts. */
         uint32_t sr = C0_STATUS();
+        __interrupt_cpu_mask = (sr & (C0_INTERRUPT_TIMER | C0_INTERRUPT_CART)) | C0_INTERRUPT_PRENMI;
         C0_WRITE_STATUS(sr | C0_STATUS_IE | C0_INTERRUPT_RCP | C0_INTERRUPT_PRENMI);
     }
 }
