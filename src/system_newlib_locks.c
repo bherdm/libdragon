@@ -14,6 +14,18 @@
 #include "kernel.h"
 #include <stdio.h>
 
+/**
+ * @brief Set by the crash screen (inspector): libc's locks are no-ops from then on.
+ *
+ * The inspector suspends every other thread and then uses stdio and malloc.
+ * A suspended thread may hold one of their locks (preempted inside malloc, or
+ * printing), and waiting for it would freeze the report; and when the crash
+ * happened inside an interrupt handler, taking a mutex there asserts, so the
+ * report couldn't start at all. Nothing else runs any more, so nothing needs
+ * the locks.
+ */
+bool __libc_locks_off = false;
+
 // Toolchains since Sept 2024 build with threads and retargetable locks enabled,
 // both of which are required for libc to be thread safe and thus the kernel
 // to work correctly (otherwise, kernel_init() will assert).
@@ -86,11 +98,11 @@ void __retarget_lock_close_recursive(_LOCK_T lock) {
 }
 
 void __retarget_lock_acquire(_LOCK_T lock) {
-    if (!__kernel) return;
+    if (!__kernel || __libc_locks_off) return;
     kmutex_lock(&lock->mut);
 }
 void __retarget_lock_acquire_recursive(_LOCK_T lock) {
-    if (!__kernel) return;
+    if (!__kernel || __libc_locks_off) return;
     // HACK: some libc locks (eg: malloc) are recursive, but they are statically
     // defined and are designed to be zero-initialized. Since in our implementation
     // zero means non-recursive, we need to set the flag here.
@@ -99,21 +111,21 @@ void __retarget_lock_acquire_recursive(_LOCK_T lock) {
 }
 
 int __retarget_lock_try_acquire(_LOCK_T lock) {
-    if (!__kernel) return 1;
+    if (!__kernel || __libc_locks_off) return 1;
     return kmutex_try_lock(&lock->mut, 0);
 }
 int __retarget_lock_try_acquire_recursive(_LOCK_T lock) {
-    if (!__kernel) return 1;
+    if (!__kernel || __libc_locks_off) return 1;
     lock->mut.flags |= KMUTEX_RECURSIVE;
     return kmutex_try_lock(&lock->mut, 0);
 }
 
 void __retarget_lock_release(_LOCK_T lock) {
-    if (!__kernel) return;
+    if (!__kernel || __libc_locks_off) return;
     kmutex_unlock(&lock->mut);
 }
 void __retarget_lock_release_recursive (_LOCK_T lock) {
-    if (!__kernel) return;
+    if (!__kernel || __libc_locks_off) return;
     kmutex_unlock(&lock->mut);
 }
 

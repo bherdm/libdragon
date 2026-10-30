@@ -653,6 +653,11 @@ static void inspector(exception_t* ex, enum Mode mode) {
     in_inspector = true;
     inspector_mode = mode;
 
+    // From here on the inspector is the only code that runs: stop waiting on
+    // libc's locks, which a thread it suspends below may hold.
+    extern bool __libc_locks_off;
+    __libc_locks_off = true;
+
     if (__kernel) {
         // Reverse the order of the thread list, so that we show the oldest threads
         // first in the list
