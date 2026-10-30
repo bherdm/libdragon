@@ -873,8 +873,11 @@ bool kmutex_try_lock(kmutex_t *mutex, uint32_t ticks)
 			KTHREAD_SWITCH();
 		}
 		if (!timeout)
-		{
 			stop_timer(&timer);
+		// The timer can expire after an unlock has already woken this thread
+		// but before it ran: the mutex is then free, and it is taken.
+		if (!mutex->owner)
+		{
 			mutex->owner = PhysicalAddr(th);
 			mutex->counter = 1;
 			mutex->original_pri = th->pri;
@@ -1012,10 +1015,12 @@ bool kcond_wait_timeout(kcond_t *cond, kmutex_t *mutex, uint32_t ticks)
 
 		// Put the thread again in the ready list, and forces a context switch.
 		// Avoid race conditions here: if the thread is not anymore in the wait list,
-		// don't add it to the ready list.
-		timeout = true;
-		if (__thlist_remove(&cond->waiting, th))
+		// it was already signaled, so this is not a timeout and it must not be
+		// added to the ready list again.
+		if (__thlist_remove(&cond->waiting, th)) {
+			timeout = true;
 			__thlist_add_pri(&th_ready, th);
+		}
 		KTHREAD_SWITCH_ISR();
 	}
 
