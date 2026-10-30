@@ -12,6 +12,7 @@
 #include "interrupt.h"
 #include "backtrace.h"
 #include "backtrace_internal.h"
+#include "cop1.h"
 #include <assert.h>
 #include <stdlib.h>
 #include <memory.h>
@@ -520,6 +521,14 @@ kthread_t* __kthread_new_internal(const char *name, int stack_size, int8_t pri, 
 	// SR: start in exception mode (we will be within an exception during scheduling),
 	// and with interrupts enabled.
 	th->stack_state->sr = C0_STATUS() | C0_STATUS_EXL | C0_STATUS_IE;
+
+	// FC31: the FPU control register, as the creating thread has it (the main
+	// thread's is set at boot by __init_cop1: flush-to-zero, plus the overflow,
+	// divide and invalid traps in debug builds). Left at zero, the new thread
+	// would compute without flush-to-zero and never trap. Only the control bits
+	// are inherited: a sticky flag or a cause bit would be the creator's, and a
+	// cause bit whose trap is enabled would fire as soon as this is loaded.
+	th->stack_state->fc31 = C1_FCR31() & (C1_FCR31_FS | C1_ENABLE_MASK | 0x3 /* rounding mode */);
 
 	// GP: this is needed by the compiler to point to the global memory pool,
 	// so let's initialize to the same value it has in this thread.
