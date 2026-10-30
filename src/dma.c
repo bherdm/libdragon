@@ -70,6 +70,8 @@ static volatile uint64_t pi_ticket_done;
 static void pi_interrupt(void);
 static void pi_poll(void);
 
+extern volatile int64_t __interrupt_counter;
+
 static volatile int __dma_busy(void)
 {
     return PI_regs->status & (PI_STATUS_DMA_BUSY | PI_STATUS_IO_BUSY);
@@ -107,6 +109,14 @@ static void pi_manual_interrupt_poll(void)
     if (status & MI_INTERRUPT_PI) {
         PI_regs->status = PI_CLEAR_INTERRUPT;
         pi_interrupt();
+
+        // The interrupt was taken here, so __MI_handler will never see it:
+        // count it and wake the threads waiting for it, as the handler
+        // would have. Otherwise a thread asleep in a PI wait whose transfer
+        // this poll just completed sleeps until the next PI interrupt, or
+        // forever if none comes.
+        ++__interrupt_counter;
+        if (__kernel) __kcond_broadcast_isr(&__kirq_cond_pi);
     }
 
     // An entry enqueued while the PI was busy with an IO access was not
