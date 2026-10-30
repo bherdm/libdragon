@@ -622,6 +622,7 @@ surface_t* display_get_zbuf(void)
             zbuf_sbrk_top = true;
         } else {
             surf_zbuf = surface_alloc(FMT_RGBA16, (uint16_t)__alloc_width, (uint16_t)__alloc_height);
+            assertf(surf_zbuf.buffer, "Out of memory: no room for the %dx%d Z-buffer", (int)__alloc_width, (int)__alloc_height);
             zbuf_sbrk_top = false;
         }
     }
