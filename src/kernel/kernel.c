@@ -129,13 +129,14 @@ static void kthread_free(kthread_t *th)
 	// Get the start of the heap-allocated block (the stack)
 	void *mem = th->stack;
 	#ifndef NDEBUG
-	// Clear memory to avoid dangling pointers
-	memset(th, 0, sizeof(kthread_t));
-	// Remove the thread from the all-threads list
+	// Remove the thread from the all-threads list. This reads its all_next,
+	// so it must come before the memory is cleared.
 	kthread_t **p = &__kernel_all_threads;
 	while (*p && *p != th)
 		p = &((*p)->all_next);
 	if (*p) *p = th->all_next;
+	// Clear memory to avoid dangling pointers
+	memset(th, 0, sizeof(kthread_t));
 	#endif
 	// Free the thread memory
 	free(mem);
