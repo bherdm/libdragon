@@ -550,6 +550,8 @@ void kmutex_unlock(kmutex_t *mtx);
  * @param mtx               Pointer to the mutex
  * @param ticks             Number of hardware ticks to wait for the mutex. See
  *                          #TICKS_FROM_MS or #TICKS_FROM_US for conversion macros.
+ *                          At most 2^31-1 (about 45.8 seconds): a longer wait is
+ *                          shortened to that.
  * @return true             If the mutex was successfully locked
  * @return false            If the mutex was not locked in time
  */
@@ -612,7 +614,9 @@ void kcond_wait(kcond_t *cond, kmutex_t *mtx);
  * 
  * @param cond 			Pointer to the condition variable
  * @param mtx 			Pointer to the mutex
- * @param ticks 		Number of hardware ticks to wait for the condition.
+ * @param ticks 		Number of hardware ticks to wait for the condition. At
+ * 						most 2^31-1 (about 45.8 seconds): a longer wait is
+ * 						shortened to that.
  * 
  * @return true 		If the condition was signaled
  * @return false 		If the condition was not signaled in time

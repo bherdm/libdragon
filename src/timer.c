@@ -21,6 +21,9 @@ static timer_link_t *TI_timers = NULL;
 /** @brief Timer callback expects a context parameter */
 #define TF_CONTEXT     0x20
 
+/** @brief Smallest lead COMPARE is written with ahead of COUNT (2 µs) */
+#define TIMER_MIN_LEAD TIMER_TICKS(2)
+
 /** @brief Update the compare register to match the first expiring timer. */
 __attribute__((noinline))
 static void timer_update_compare(timer_link_t *head, uint32_t now)
@@ -29,15 +32,24 @@ static void timer_update_compare(timer_link_t *head, uint32_t now)
 
 	while (head)
 	{
-		/* See how much time is left before the timer expires. Notice that
-		   the subtraction is also safe with overflows. */
-		uint32_t left = head->left - now;
-		if (left < smallest)
-			smallest = left;
+		/* See how much time is left before the timer expires, as a signed
+		   distance (safe with overflows). A deadline already behind `now`
+		   (a timer started with no time left, or a continuous one running
+		   late) is due at once: as an unsigned distance it would wrap to
+		   about 2^32 ticks, and fire 91.6 s late. */
+		int32_t left = TICKS_DISTANCE(now, head->left);
+		uint32_t wait = left > 0 ? (uint32_t)left : 0;
+		if (wait < smallest)
+			smallest = wait;
 
 		/* Go to next */
 		head = head->next;
 	}
+
+	/* COMPARE must be ahead of COUNT when it is written, or the match only
+	   comes after a full wrap: give it a small lead. */
+	if (smallest < TIMER_MIN_LEAD)
+		smallest = TIMER_MIN_LEAD;
 
 	/* set compare to shortest time left */
 	C0_WRITE_COMPARE(now + smallest);
@@ -62,19 +74,19 @@ static int __proc_timers(timer_link_t * thead)
 {
 	timer_link_t *head = thead;
 	timer_link_t *last = 0;
-	uint32_t start = C0_COMPARE();
 	uint32_t now = TICKS_READ();
 
 	while (head)
 	{
-		/* Consider a timer as expired if its deadline is at the
-		 * COMPARE value (time at which the interrupt triggered) or up to 5
-		 * microseconds after. This 5 microseconds window is useful to cluster
+		/* Consider a timer as expired if its deadline has passed, or is up
+		 * to 5 microseconds from now. A deadline earlier than the COMPARE
+		 * value that triggered this interrupt counts too: it belongs to a
+		 * timer that started with no time left, or one running late. This
+		 * 5 microseconds window is useful to cluster
 		 * timers that expire close to each other; eg: if the client creates
 		 * many timers with the same period, they will be created in a fast
 		 * sequence and have a little delay between each other. */
 		if (!(head->flags & TF_DISABLED) &&
-			TICKS_DISTANCE(start, head->left) >= 0 &&
 			TICKS_DISTANCE(head->left, now + TIMER_TICKS(5)) >= 0)
 		{
 			/* yes - timed out, do callback */

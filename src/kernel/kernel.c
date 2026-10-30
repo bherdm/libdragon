@@ -49,6 +49,21 @@
  */
 #define KTHREAD_SWITCH_ISR()  ({ __isr_force_schedule = true; })
 
+/** @brief The longest delay a timer takes: start_timer's ticks are a signed int */
+#define TIMER_MAX_TICKS  0x7FFFFFFF
+
+/**
+ * @brief A timed wait's ticks, as start_timer takes them.
+ *
+ * Waits take an unsigned count, but past 2^31-1 (about 45.8 s) start_timer
+ * would read it as negative, and the wait would time out at once: such a wait
+ * is shortened to the longest the timer takes instead.
+ */
+static int timeout_ticks(uint32_t ticks)
+{
+	return ticks > TIMER_MAX_TICKS ? TIMER_MAX_TICKS : (int)ticks;
+}
+
 /** @brief Main thread */
 kthread_t th_main;
 /** @brief Pointer to the current thread */
@@ -729,6 +744,13 @@ void kthread_sleep(int64_t ticks)
 	kthread_t *th = th_cur;
 	assertf(ticks > 0, "ticks must be positive");
 
+	// A timer takes at most 2^31-1 ticks (about 45.8 s): sleep longer than
+	// that in steps.
+	while (ticks > TIMER_MAX_TICKS) {
+		kthread_sleep(TIMER_MAX_TICKS);
+		ticks -= TIMER_MAX_TICKS;
+	}
+
 	// Timer callback. This will be invoked when the timer elapses after the
 	// requested delay.
 	void cb(int ovlf)
@@ -869,7 +891,7 @@ bool kmutex_try_lock(kmutex_t *mutex, uint32_t ticks)
 
 		// Start a timer for the specified delay.
 		timer_link_t timer;
-		start_timer(&timer, ticks, TF_ONE_SHOT, cb);
+		start_timer(&timer, timeout_ticks(ticks), TF_ONE_SHOT, cb);
 
 		while (mutex->owner && !timeout)
 		{
@@ -1035,7 +1057,7 @@ bool kcond_wait_timeout(kcond_t *cond, kmutex_t *mutex, uint32_t ticks)
 
 	// Start a timer for the specified delay.
 	timer_link_t timer;
-	start_timer(&timer, ticks, TF_ONE_SHOT, cb);
+	start_timer(&timer, timeout_ticks(ticks), TF_ONE_SHOT, cb);
 
 	// Context switch
 	KTHREAD_SWITCH();
