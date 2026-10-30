@@ -133,6 +133,15 @@ exception:
 	jal save_fpu_regs
 	move a0, sp
 
+	# A floating-point exception leaves its cause bits set in FCR31. The frame
+	# keeps them (the crash report reads them there); clear them in the live
+	# register, or the next ctc1 of a copy of it (the exit of an interrupt
+	# taken while the report prints) raises the same exception again.
+	cfc1 t0, $f31
+	li t1, ~0x3F000    # C1_CAUSE_MASK
+	and t0, t1
+	ctc1 t0, $f31
+
 	# Save all the CPU+FPU caller-saved regs, which are normally
 	# not saved for an interrupt.
 	jal finalize_exception_frame
