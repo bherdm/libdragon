@@ -6,6 +6,7 @@
 #include "n64types.h"
 #include "n64sys.h"
 #include "dma.h"
+#include "interrupt.h"
 #include "libcart/cart.h"
 
 #define MI_BASE_REG             0x04300000
@@ -1613,6 +1614,29 @@ static int __sc_sync(void)
     return 0;
 }
 
+#define SC_SET_DATA0            1
+#define SC_SET_DATA1            2
+
+/* One SC64 command: its arguments, the command, the wait for it, and its
+   result in DATA1, all with interrupts disabled. The command registers are
+   shared with the SC64 USB driver (usb.c), which debug output can drive from
+   another thread or an interrupt handler; interleaved with it, the two would
+   take each other's arguments and results. Returns -1 if the command failed. */
+static int __sc_cmd(uint32_t cmd, int set, uint32_t data0, uint32_t data1,
+                    uint32_t *result1)
+{
+    int ret;
+    disable_interrupts();
+    __sc_sync();
+    if (set & SC_SET_DATA0) io_write(SC_DATA0_REG, data0);
+    if (set & SC_SET_DATA1) io_write(SC_DATA1_REG, data1);
+    io_write(SC_COMMAND_REG, cmd);
+    ret = __sc_sync();
+    if (result1) *result1 = io_read(SC_DATA1_REG);
+    enable_interrupts();
+    return ret;
+}
+
 int sc_init(void)
 {
     uint32_t cfg;
@@ -1621,16 +1645,9 @@ int sc_init(void)
     io_write(SC_KEY_REG, SC_KEY_UNL);
     io_write(SC_KEY_REG, SC_KEY_OCK);
     if (io_read(SC_IDENTIFIER_REG) != SC_IDENTIFIER) CART_ABORT();
-    __sc_sync();
-    io_write(SC_DATA0_REG, SC_CFG_ROM_WRITE);
-    io_write(SC_DATA1_REG, 1);
-    io_write(SC_COMMAND_REG, SC_CONFIG_SET);
-    __sc_sync();
+    __sc_cmd(SC_CONFIG_SET, SC_SET_DATA0|SC_SET_DATA1, SC_CFG_ROM_WRITE, 1, NULL);
     /* SC64 uses SDRAM for 64DD */
-    io_write(SC_DATA0_REG, SC_CFG_DD_MODE);
-    io_write(SC_COMMAND_REG, SC_CONFIG_GET);
-    __sc_sync();
-    cfg = io_read(SC_DATA1_REG);
+    __sc_cmd(SC_CONFIG_GET, SC_SET_DATA0, SC_CFG_DD_MODE, 0, &cfg);
     /* Have registers */
     if (cfg & SC_DD_MODE_REGS)
     {
@@ -1645,11 +1662,9 @@ int sc_init(void)
     {
         /* SC64 does not have physical SRAM on board */
         /* The end of SDRAM is used for SRAM or FlashRAM save types */
-        io_write(SC_DATA0_REG, SC_CFG_SAVE_TYPE);
-        io_write(SC_COMMAND_REG, SC_CONFIG_GET);
-        __sc_sync();
+        __sc_cmd(SC_CONFIG_GET, SC_SET_DATA0, SC_CFG_SAVE_TYPE, 0, &cfg);
         /* Have SRAM or FlashRAM */
-        if (io_read(SC_DATA1_REG) >= 3)
+        if (cfg >= 3)
         {
             cart_size = 0x3FE0000; /* 64 MiB - 128 KiB */
         }
@@ -1666,14 +1681,8 @@ int sc_init(void)
 int sc_exit(void)
 {
     __cart_acs_get();
-    __sc_sync();
-    io_write(SC_DATA1_REG, SC_SD_DEINIT);
-    io_write(SC_COMMAND_REG, SC_SD_OP);
-    __sc_sync();
-    io_write(SC_DATA0_REG, SC_CFG_ROM_WRITE);
-    io_write(SC_DATA1_REG, 0);
-    io_write(SC_COMMAND_REG, SC_CONFIG_SET);
-    __sc_sync();
+    __sc_cmd(SC_SD_OP, SC_SET_DATA1, 0, SC_SD_DEINIT, NULL);
+    __sc_cmd(SC_CONFIG_SET, SC_SET_DATA0|SC_SET_DATA1, SC_CFG_ROM_WRITE, 0, NULL);
     io_write(SC_KEY_REG, SC_KEY_RESET);
     io_write(SC_KEY_REG, SC_KEY_LOCK);
     __cart_acs_rel();
@@ -1683,10 +1692,7 @@ int sc_exit(void)
 int sc_card_init(void)
 {
     __cart_acs_get();
-    __sc_sync();
-    io_write(SC_DATA1_REG, SC_SD_INIT);
-    io_write(SC_COMMAND_REG, SC_SD_OP);
-    if (__sc_sync()) CART_ABORT();
+    if (__sc_cmd(SC_SD_OP, SC_SET_DATA1, 0, SC_SD_INIT, NULL)) CART_ABORT();
     __cart_acs_rel();
     return 0;
 }
@@ -1697,17 +1703,11 @@ int sc_card_rd_dram(void *dram, uint32_t lba, uint32_t count)
     int i;
     int n;
     __cart_acs_get();
-    __sc_sync();
     while (count > 0)
     {
         n = count < 16 ? count : 16;
-        io_write(SC_DATA0_REG, lba);
-        io_write(SC_COMMAND_REG, SC_SD_SECTOR_SET);
-        if (__sc_sync()) CART_ABORT();
-        io_write(SC_DATA0_REG, SC_BUFFER_REG);
-        io_write(SC_DATA1_REG, n);
-        io_write(SC_COMMAND_REG, SC_SD_READ);
-        if (__sc_sync()) CART_ABORT();
+        if (__sc_cmd(SC_SD_SECTOR_SET, SC_SET_DATA0, lba, 0, NULL)) CART_ABORT();
+        if (__sc_cmd(SC_SD_READ, SC_SET_DATA0|SC_SET_DATA1, SC_BUFFER_REG, n, NULL)) CART_ABORT();
         if ((long)addr & 7)
         {
             for (i = 0; i < n; i++)
@@ -1732,25 +1732,15 @@ int sc_card_rd_dram(void *dram, uint32_t lba, uint32_t count)
 int sc_card_rd_cart(uint32_t cart, uint32_t lba, uint32_t count)
 {
     __cart_acs_get();
-    __sc_sync();
     if (cart_card_byteswap)
     {
-        io_write(SC_DATA1_REG, SC_SD_BYTESWAP_ON);
-        io_write(SC_COMMAND_REG, SC_SD_OP);
-        if (__sc_sync()) CART_ABORT();
+        if (__sc_cmd(SC_SD_OP, SC_SET_DATA1, 0, SC_SD_BYTESWAP_ON, NULL)) CART_ABORT();
     }
-    io_write(SC_DATA0_REG, lba);
-    io_write(SC_COMMAND_REG, SC_SD_SECTOR_SET);
-    if (__sc_sync()) CART_ABORT();
-    io_write(SC_DATA0_REG, cart);
-    io_write(SC_DATA1_REG, count);
-    io_write(SC_COMMAND_REG, SC_SD_READ);
-    if (__sc_sync()) CART_ABORT();
+    if (__sc_cmd(SC_SD_SECTOR_SET, SC_SET_DATA0, lba, 0, NULL)) CART_ABORT();
+    if (__sc_cmd(SC_SD_READ, SC_SET_DATA0|SC_SET_DATA1, cart, count, NULL)) CART_ABORT();
     if (cart_card_byteswap)
     {
-        io_write(SC_DATA1_REG, SC_SD_BYTESWAP_OFF);
-        io_write(SC_COMMAND_REG, SC_SD_OP);
-        if (__sc_sync()) CART_ABORT();
+        if (__sc_cmd(SC_SD_OP, SC_SET_DATA1, 0, SC_SD_BYTESWAP_OFF, NULL)) CART_ABORT();
     }
     __cart_acs_rel();
     return 0;
@@ -1762,7 +1752,6 @@ int sc_card_wr_dram(const void *dram, uint32_t lba, uint32_t count)
     int i;
     int n;
     __cart_acs_get();
-    __sc_sync();
     while (count > 0)
     {
         n = count < 16 ? count : 16;
@@ -1780,13 +1769,8 @@ int sc_card_wr_dram(const void *dram, uint32_t lba, uint32_t count)
             __cart_dma_wr(addr, SC_BUFFER_REG, 512*n);
             addr += 512*n;
         }
-        io_write(SC_DATA0_REG, lba);
-        io_write(SC_COMMAND_REG, SC_SD_SECTOR_SET);
-        if (__sc_sync()) CART_ABORT();
-        io_write(SC_DATA0_REG, SC_BUFFER_REG);
-        io_write(SC_DATA1_REG, n);
-        io_write(SC_COMMAND_REG, SC_SD_WRITE);
-        if (__sc_sync()) CART_ABORT();
+        if (__sc_cmd(SC_SD_SECTOR_SET, SC_SET_DATA0, lba, 0, NULL)) CART_ABORT();
+        if (__sc_cmd(SC_SD_WRITE, SC_SET_DATA0|SC_SET_DATA1, SC_BUFFER_REG, n, NULL)) CART_ABORT();
         lba += n;
         count -= n;
     }
@@ -1797,14 +1781,8 @@ int sc_card_wr_dram(const void *dram, uint32_t lba, uint32_t count)
 int sc_card_wr_cart(uint32_t cart, uint32_t lba, uint32_t count)
 {
     __cart_acs_get();
-    __sc_sync();
-    io_write(SC_DATA0_REG, lba);
-    io_write(SC_COMMAND_REG, SC_SD_SECTOR_SET);
-    if (__sc_sync()) CART_ABORT();
-    io_write(SC_DATA0_REG, cart);
-    io_write(SC_DATA1_REG, count);
-    io_write(SC_COMMAND_REG, SC_SD_WRITE);
-    if (__sc_sync()) CART_ABORT();
+    if (__sc_cmd(SC_SD_SECTOR_SET, SC_SET_DATA0, lba, 0, NULL)) CART_ABORT();
+    if (__sc_cmd(SC_SD_WRITE, SC_SET_DATA0|SC_SET_DATA1, cart, count, NULL)) CART_ABORT();
     __cart_acs_rel();
     return 0;
 }

@@ -1401,6 +1401,14 @@ char usb_sc64_execute_cmd(u8 cmd, u32 *args, u32 *result)
 {
     u32 sr;
 
+    #ifdef LIBDRAGON
+        // The command registers are shared with libcart's SC64 SD driver, and
+        // debug output can reach this from another thread or an interrupt
+        // handler: run the whole command with interrupts disabled, so nothing
+        // interleaves with it and takes its arguments or its results.
+        disable_interrupts();
+    #endif
+
     // Write arguments if provided
     if (args != NULL)
     {
@@ -1424,6 +1432,10 @@ char usb_sc64_execute_cmd(u8 cmd, u32 *args, u32 *result)
         result[0] = usb_io_read(SC64_REG_DATA_0);
         result[1] = usb_io_read(SC64_REG_DATA_1);
     }
+
+    #ifdef LIBDRAGON
+        enable_interrupts();
+    #endif
 
     // Return error status
     if (sr & SC64_SR_CMD_ERROR)

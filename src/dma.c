@@ -93,11 +93,15 @@ static bool __pi_queue_full(void)
  * Only a thread can block (an exception handler, eg. one printing a crash
  * report, cannot), and only a running DMA raises the PI interrupt that wakes
  * it: an IO access in flight (PI_STATUS_IO_BUSY, eg. right after io_write)
- * raises none. Every other wait polls the PI instead.
+ * raises none. A caller that disabled interrupts doesn't sleep either: it
+ * disabled them so that no other thread runs until it is done (eg. one SC64
+ * command, see usb.c and libcart), and sleeping would let one run. Every
+ * other wait polls the PI instead.
  */
 static bool pi_wait_can_sleep(void)
 {
-    return __kernel && !exception_is_running() && pi_state == PI_STATE_RUNNING;
+    return __kernel && !exception_is_running() && pi_state == PI_STATE_RUNNING &&
+           get_interrupts_state() == INTERRUPTS_ENABLED;
 }
 
 static void pi_manual_interrupt_poll(void)
