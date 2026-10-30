@@ -22,6 +22,7 @@
 #define TH_FLAG_DETACHED    (1<<2)      ///< The thread is detached (no one will join it)
 #define TH_FLAG_WAITFORJOIN (1<<3)      ///< The non-detached thread is finished and is waiting for a join
 #define TH_FLAG_SUSPENDED   (1<<4)      ///< The thread is suspended (will not be scheduled)
+#define TH_FLAG_JOINING     (1<<5)      ///< The thread waits in kthread_join for another to exit (in no list)
 #define TH_FLAG_INSPECTOR1  (1<<7)      ///< Flag reserved for usage in the inspector
 
 /**

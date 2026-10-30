@@ -306,7 +306,9 @@ reg_block_t* __kthread_syscall_schedule(reg_block_t *stack_state)
 				// again. Notice that, given that this is an explicit syscall,
 				// the thread must already have been added to a waiting list,
 				// otherwise it wouldn't ever be scheduled again.
-				assert(th_cur->flags & TH_FLAG_INLIST);
+				// (A joiner is the exception: kthread_kill wakes it through
+				// the joined thread's joiner pointer.)
+				assert(th_cur->flags & (TH_FLAG_INLIST | TH_FLAG_JOINING));
 				assertf(*(uint32_t*)th_cur->stack_state->epc == 0x0000000C, "invalid opcode found by __kthread_syscall_schedule:\nexpected 0x0000000C (SYSCALL 0x0), found: %08lx", *(uint32_t*)th_cur->stack_state->epc);
 				th_cur->stack_state->epc += 4;
 			}
@@ -600,7 +602,13 @@ void kthread_kill(kthread_t *th, int res)
 	} else {
 		if (th->joiner) {
 			th->joiner->joined_result = res;
+			th->joiner->flags &= ~TH_FLAG_JOINING;
 			__thlist_add_pri(&th_ready, th->joiner);
+			// Its joiner has its result, and nobody else may join it, so it
+			// is now like a detached thread: freed by the scheduler as a
+			// zombie, since it can't be freed here (it may be the running
+			// thread, or in a wait list).
+			th->flags |= TH_FLAG_DETACHED | TH_FLAG_ZOMBIE;
 		} else {
 			th->flags |= TH_FLAG_WAITFORJOIN;
 			th->joined_result = res;
@@ -679,6 +687,7 @@ int kthread_join(kthread_t *th)
 		// Add the current thread to the joiner list, and then force a context switch.
 		assertf(th->joiner == NULL, "thread %s[%p] already joined by %s[%p]", th->name, th, th->joiner->name, th->joiner);
 		th->joiner = th_cur;
+		th_cur->flags |= TH_FLAG_JOINING;
 		KTHREAD_SWITCH();
 	}
 
