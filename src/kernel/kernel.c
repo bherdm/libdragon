@@ -691,7 +691,7 @@ bool kthread_try_join(kthread_t *th, int *res)
 	bool joined = false;
 
 	disable_interrupts();
-	assertf((th->flags & TH_FLAG_DETACHED), "cannot join a detached thread %s[%p]", th->name, th);
+	assertf(!(th->flags & TH_FLAG_DETACHED), "cannot join a detached thread %s[%p]", th->name, th);
 
 	if (th->flags & TH_FLAG_WAITFORJOIN)
 	{
