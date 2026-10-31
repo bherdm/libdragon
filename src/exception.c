@@ -9,6 +9,7 @@
 #include "exception_internal.h"
 #include "console.h"
 #include "n64sys.h"
+#include "interrupt.h"
 #include "debug.h"
 #include "regsinternal.h"
 #include "kernel/kernel_internal.h"
@@ -217,6 +218,13 @@ static void debug_exception(exception_t* ex) {
 #endif
 
 void exception_default_handler(exception_t* ex) {
+	// The program ends here, as after a failed assert: keep interrupts off, as
+	// debug_assert_func_f() does. The CPU already took them off for the
+	// exception, but libdragon's count says they're on, so a wait for the PI
+	// in the report below would sleep for its interrupt, turning interrupts
+	// on and letting other threads run in the middle of the report.
+	disable_interrupts();
+
 	#ifndef NDEBUG
 	static bool backtrace_exception = false;
 
