@@ -12,6 +12,7 @@
 #include "n64sys.h"
 #include "utils.h"
 #include "debug.h"
+#include "debug_internal.h"
 #include "kernel/kernel_internal.h"
 #include "kirq.h"
 #include "mi.h"
@@ -285,9 +286,13 @@ static void __vblank_interrupt(void*)
     }
 
 #ifndef NDEBUG
-    int line = vi_get_scanline(NULL);
-    if (line > VI_V_CURRENT_VBLANK + 8) {
-        debugf("VI WARNING: __vblank_interrupt outside of vblank period: %d\n", line);
+    // Only while a debug channel is open: otherwise the warning has nowhere to
+    // go, and a program that doesn't log shouldn't read the scanline every frame.
+    if (__debug_write_fn) {
+        int line = vi_get_scanline(NULL);
+        if (line > VI_V_CURRENT_VBLANK + 8) {
+            debugf("VI WARNING: __vblank_interrupt outside of vblank period: %d\n", line);
+        }
     }
 #endif
 }
