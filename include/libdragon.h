@@ -38,6 +38,7 @@
 #include "pixelfx.h"
 #include "joypad.h"
 #include "keyboard.h"
+#include "blueretroforever.h"
 #include "controller.h"
 #include "rtc.h"
 #include "bio_sensor.h"

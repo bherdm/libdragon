@@ -105,6 +105,14 @@
  * Randnet keyboard doesn't answer it.
  */
 #define JOYBUS_COMMAND_ID_BRF_KEYBOARD_READ     0x2A
+/**
+ * @brief "BlueRetroForever Command" Joybus command identifier.
+ *
+ * BlueRetroForever's commands from the console, on any port in any mode:
+ * its status, pairing, disconnecting a device, its LEDs' level and each
+ * port's keyboard settings.
+ */
+#define JOYBUS_COMMAND_ID_BRF_COMMAND           0x7B
 /** @brief "64GB Link Cable Read" Joybus command identifier. */
 #define JOYBUS_COMMAND_ID_64GB_LINK_CABLE_READ        0x13
 /** @brief "GBA Link Cable Read" Joybus command identifier. */
@@ -427,6 +435,10 @@ typedef struct __attribute__((packed)) joybus_cmd_n64_controller_read_port_s
 #define JOYBUS_BRF_KEYBOARD_SETTINGS_LAYOUT       0x07
 /** @brief Settings byte: the arrangement's bit (#keyboard_arrangement_t). */
 #define JOYBUS_BRF_KEYBOARD_SETTINGS_ARRANGEMENT_SHIFT 3
+/** @brief Settings byte: classic mode, a Randnet keyboard for the Randnet's own software. */
+#define JOYBUS_BRF_KEYBOARD_SETTINGS_CLASSIC      (1<<4)
+/** @brief Settings byte: set until power off, not saved; read, the port's setting isn't the saved one. */
+#define JOYBUS_BRF_KEYBOARD_SETTINGS_TEMPORARY    (1<<7)
 /** @} */
 
 /**
@@ -465,6 +477,71 @@ typedef struct __attribute__((packed)) joybus_cmd_brf_keyboard_read_port_s
         uint16_t keys[JOYBUS_BRF_KEYBOARD_READ_KEYS];
     } recv;
 } joybus_cmd_brf_keyboard_read_port_t;
+
+/**
+ * @anchor JOYBUS_BRF_COMMAND
+ * @name "BlueRetroForever Command" values
+ * @{
+ */
+/** @brief The reply's protocol version. */
+#define JOYBUS_BRF_COMMAND_VERSION                1
+/** @brief Verb: status. */
+#define JOYBUS_BRF_VERB_STATUS                    0x00
+/** @brief Verb: open pairing. */
+#define JOYBUS_BRF_VERB_OPEN_PAIRING              0x01
+/** @brief Verb: close pairing. */
+#define JOYBUS_BRF_VERB_CLOSE_PAIRING             0x02
+/** @brief Verb: disconnect a port's device (arg0: port 0-3, or 0xFF for all). */
+#define JOYBUS_BRF_VERB_DISCONNECT                0x03
+/** @brief Verb: the LEDs' brightness level (arg0: 1 or more). */
+#define JOYBUS_BRF_VERB_LED_LEVEL                 0x04
+/** @brief Verb: each port's keyboard settings, in the reply's port bytes. */
+#define JOYBUS_BRF_VERB_KEYBOARD_SETTINGS         0x05
+/** @brief Verb: set keyboard settings (arg0: port 0-3, or 0xFF for all; arg1: a settings byte). */
+#define JOYBUS_BRF_VERB_SET_KEYBOARD_SETTINGS     0x06
+/** @brief Flags bit: pairing is open. */
+#define JOYBUS_BRF_FLAG_PAIRING                   (1<<0)
+/** @} */
+
+/**
+ * @brief "BlueRetroForever Command" Joybus command structure.
+ *
+ * The reply is the same for every verb, and shows the state from before the
+ * verb's action, which the adapter takes after replying.
+ *
+ * @see #JOYBUS_COMMAND_ID_BRF_COMMAND
+ */
+typedef struct __attribute__((packed)) joybus_cmd_brf_command_port_s
+{
+    /** @brief "BlueRetroForever Command" command send data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief Joybus command ID (#JOYBUS_COMMAND_ID_BRF_COMMAND) */
+        uint8_t command;
+        /** @brief The verb (@ref JOYBUS_BRF_COMMAND) */
+        uint8_t verb;
+        /** @brief The verb's arguments */
+        uint8_t arg[2];
+    } send;
+    /** @brief "BlueRetroForever Command" command receive data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief #JOYBUS_BRF_MARKER */
+        uint8_t marker;
+        /** @brief #JOYBUS_BRF_COMMAND_VERSION */
+        uint8_t version;
+        /** @brief The verb, echoed */
+        uint8_t verb;
+        /** @brief 0 accepted, 1 unknown verb, 2 bad argument */
+        uint8_t result;
+        /** @brief Flags (#JOYBUS_BRF_FLAG_PAIRING) */
+        uint8_t flags;
+        /** @brief The LEDs' brightness level */
+        uint8_t led_level;
+        /** @brief Each port's device (0 none, 1 gamepad, 2 keyboard, 3 mouse), or its keyboard settings byte */
+        uint8_t ports[4];
+    } recv;
+} joybus_cmd_brf_command_port_t;
 
 /**
  * @brief "GameCube Controller Read" Joybus command structure.

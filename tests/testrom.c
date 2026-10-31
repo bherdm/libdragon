@@ -230,6 +230,7 @@ int assert_equal_mem(TestContext *ctx, const char *file, int line, const uint8_t
 #include "test_fm.c"
 #include "test_magma.c"
 #include "test_keyboard.c"
+#include "test_blueretroforever.c"
 
 /**********************************************************************
  * MAIN
@@ -437,6 +438,7 @@ static const struct Testsuite
 	TEST_FUNC(test_dlclose,           0, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_dl_ctors,           0, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_keyboard,                   0, TEST_FLAGS_NO_BENCHMARK),
+	TEST_FUNC(test_brf,                  0, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_mat4_mul_two_identities,				0, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_mat4_mul_scale_translation,			0, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_mat3_mul_two_identities,				0, TEST_FLAGS_NO_BENCHMARK),
