@@ -14,6 +14,8 @@ LIBDRAGON_OBJS += \
 	$(BUILD_DIR)/joybus/joyframe.o \
 	$(BUILD_DIR)/joybus/joypad_accessory.o \
 	$(BUILD_DIR)/joybus/joypad.o \
+	$(BUILD_DIR)/joybus/keyboard.o \
+	$(BUILD_DIR)/joybus/keyboard_names.o \
 	$(BUILD_DIR)/joybus/mempak.o \
 	$(BUILD_DIR)/joybus/pixelfx.o \
 	$(BUILD_DIR)/joybus/tpak.o

@@ -97,6 +97,14 @@
 #define JOYBUS_COMMAND_ID_RTC_WRITE_BLOCK             0x08
 /** @brief "N64 Randnet Keyboard Read" Joybus command identifier. */
 #define JOYBUS_COMMAND_ID_N64_RANDNET_KEYBOARD_READ   0x13
+/**
+ * @brief "BlueRetroForever Keyboard Read" Joybus command identifier.
+ *
+ * BlueRetroForever's read of a full-size keyboard it presents with the Randnet
+ * keyboard's identity: ten keys as HID usages, with the layout it's set to. A
+ * Randnet keyboard doesn't answer it.
+ */
+#define JOYBUS_COMMAND_ID_BRF_KEYBOARD_READ     0x2A
 /** @brief "64GB Link Cable Read" Joybus command identifier. */
 #define JOYBUS_COMMAND_ID_64GB_LINK_CABLE_READ        0x13
 /** @brief "GBA Link Cable Read" Joybus command identifier. */
@@ -401,6 +409,62 @@ typedef struct __attribute__((packed)) joybus_cmd_n64_controller_read_port_s
         signed   stick_y : 8; ///< Analog stick Y-axis.
     } recv;
 } joybus_cmd_n64_controller_read_port_t;
+
+/**
+ * @anchor JOYBUS_BRF_KEYBOARD_READ
+ * @name "BlueRetroForever Keyboard Read" reply values
+ * @{
+ */
+/** @brief The first byte of every BlueRetroForever reply, telling it from a device that answers anything with its identity. */
+#define JOYBUS_BRF_MARKER                         0x42
+/** @brief The reply's version: 2, with HID usages and the settings byte. */
+#define JOYBUS_BRF_KEYBOARD_READ_VERSION          2
+/** @brief How many key codes a reply holds. */
+#define JOYBUS_BRF_KEYBOARD_READ_KEYS             10
+/** @brief Status bit: more keys are held than the reply holds. */
+#define JOYBUS_BRF_KEYBOARD_STATUS_EXCESS_KEYS    (1<<4)
+/** @brief Settings byte: the layout (#keyboard_layout_t). */
+#define JOYBUS_BRF_KEYBOARD_SETTINGS_LAYOUT       0x07
+/** @brief Settings byte: the arrangement's bit (#keyboard_arrangement_t). */
+#define JOYBUS_BRF_KEYBOARD_SETTINGS_ARRANGEMENT_SHIFT 3
+/** @} */
+
+/**
+ * @brief "BlueRetroForever Keyboard Read" Joybus command structure.
+ *
+ * The keys are HID usages as the Keyboard subsystem's codes are
+ * (#keyboard_key_t), from the first slot: the held modifiers, then the other
+ * keys in the order they went down, then media and system keys. The settings
+ * byte is the port's keyboard settings as BlueRetroForever's command 0x7B
+ * reads them.
+ *
+ * @see #JOYBUS_COMMAND_ID_BRF_KEYBOARD_READ
+ */
+typedef struct __attribute__((packed)) joybus_cmd_brf_keyboard_read_port_s
+{
+    /** @brief "BlueRetroForever Keyboard Read" command send data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief Joybus command ID (#JOYBUS_COMMAND_ID_BRF_KEYBOARD_READ) */
+        uint8_t command;
+        /** @brief LEDs to light (@ref KEYBOARD_LED) */
+        uint8_t leds;
+    } send;
+    /** @brief "BlueRetroForever Keyboard Read" command receive data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief #JOYBUS_BRF_MARKER */
+        uint8_t marker;
+        /** @brief #JOYBUS_BRF_KEYBOARD_READ_VERSION */
+        uint8_t version;
+        /** @brief Status byte (#JOYBUS_BRF_KEYBOARD_STATUS_EXCESS_KEYS) */
+        uint8_t status;
+        /** @brief The port's keyboard settings (@ref JOYBUS_BRF_KEYBOARD_READ) */
+        uint8_t settings;
+        /** @brief Up to ten held keys, then 0 */
+        uint16_t keys[JOYBUS_BRF_KEYBOARD_READ_KEYS];
+    } recv;
+} joybus_cmd_brf_keyboard_read_port_t;
 
 /**
  * @brief "GameCube Controller Read" Joybus command structure.
