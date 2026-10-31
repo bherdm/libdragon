@@ -212,7 +212,9 @@ extern "C" {
 	 * writing debug messages during interrupts or exceptions, when standard
 	 * I/O functions cannot be used safely. There, floats are not formatted
 	 * (formatting one allocates memory): each prints as "<float>", and the
-	 * line says so at its end.
+	 * line says so at its end. A message from an interrupt handler never cuts
+	 * into a thread's: one that comes while a thread is writing is sent right
+	 * after it.
 	 */
 	__attribute__((format(printf, 1, 2)))
 	void debugf(const char *msg, ...);

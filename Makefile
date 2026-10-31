@@ -49,6 +49,7 @@ LIBDRAGON_OBJS += \
 	$(BUILD_DIR)/rand.o \
 	$(BUILD_DIR)/utils.o \
 	$(BUILD_DIR)/debug.o \
+	$(BUILD_DIR)/debug_write.o \
 	$(BUILD_DIR)/debugcpp.o \
 	$(BUILD_DIR)/usb.o \
 	$(BUILD_DIR)/libcart/cart.o \

@@ -24,6 +24,7 @@
 #include "utils.h"
 #include "libcart/cart.h"
 #include "interrupt.h"
+#include "debug_internal.h"
 #include "backtrace.h"
 #include "kernel/kernel_internal.h"
 #include "exception_internal.h"
@@ -263,12 +264,20 @@ static bool usb_initialize_once(void) {
 	return ok;
 }
 
-/** Emit debug output */
-static int __stderr_write(char *buf, unsigned int len)
+void (*__debug_write_fn)(const char *buf, int len) = NULL;
+
+void __debug_write_channels(const char *buf, int len)
 {
 	for (int i=0; i<sizeof(debug_writer) / sizeof(debug_writer[0]); i++)
 		if (debug_writer[i])
-			debug_writer[i]((uint8_t*)buf, len);
+			debug_writer[i]((const uint8_t*)buf, len);
+}
+
+/** Emit debug output */
+static int __stderr_write(char *buf, unsigned int len)
+{
+	if (__debug_write_fn)
+		__debug_write_fn(buf, len);
 
 	// Pretend stderr is written correctly even if it isn't. 
 	// There's really no benefit in bubbling up I/O errors
@@ -283,7 +292,8 @@ static void hook_init_once(void)
 	static bool once = false;
 	if (!once)
 	{
-		// Connect debug spew to stderr
+		// Connect debug spew to stderr, written one writer at a time
+		__debug_write_fn = __debug_write;
 		stdio_t debug_calls = { 0, 0, __stderr_write };
 		hook_stdio_calls(&debug_calls);
 
@@ -460,12 +470,13 @@ static void debugfv(const char *msg, va_list args)
 	// Debug output. The goal is to call __stderr_write() with the final output
 	// string. Normally, we can do this simply by calling vfprintf(stderr, ...).
 	//
-	// Under interrupts, when the kernel is used, though, we need to avoid
-	// using stdio functions as they could deadlock on FILE mutexes. The best
+	// Under interrupts, though, we need to avoid using stdio functions: with
+	// the kernel they could deadlock on FILE mutexes, and without it they'd
+	// add to stderr's buffer in the middle of a thread's line. The best
 	// would be to have a fprintf variant that calls a custom function for each
 	// output character, but that doesn't exist in newlib. So we resort to a
 	// fixed-size vsnprintf buffer.
-	if (__kernel && exception_is_running()) {
+	if (exception_is_running()) {
 		char buf[256] __attribute__((uninitialized));
 		int n = vsnprintf_isr(buf, sizeof(buf), msg, args);
 		if (n > 0) __stderr_write(buf, n);
