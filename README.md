@@ -1,3 +1,32 @@
+**This repository is an active fork of the archived libdragon project (https://github.com/DragonMinded/libdragon).**
+
+
+libdragon was created by Jennifer Taylor (DragonMinded) and grew into a modern N64 SDK through the work of Giovanni Bajo and many other contributors. This fork continues the project under the same licensing (public domain, see [LICENSE.md](LICENSE.md)).
+
+Its main line is the `RDK` branch: the Reality Development Kit, named for Project Reality, the N64's codename at SGI and Nintendo.
+
+Contributions and testing from the community are welcome and appreciated. My primary focus remains the Retrot Game Engine, so my contributions to this fork will mainly serve that project.
+
+Thank you,
+
+bherdm
+
+## Changes in this fork
+
+* Multithreading kernel fixes: thread joins and timed waits, interrupt masking, each new thread's FPU control bits, PI and DMA waits, SC64 commands from several threads, and a crash screen that no longer waits on the crashed program's locks.
+* Keyboard support (`keyboard.h`): full-size Bluetooth keyboards through [BlueRetroForever](https://github.com/bherdm/BlueRetroForever), every key of US, UK, German, French and Japanese layouts, media keys included, ten keys at once. A game that doesn't use the keyboard pays nothing for it.
+* BlueRetroForever commands (`blueretroforever.h`): pairing, status, and each port's keyboard settings, from the console.
+* Crash and debug output: a floating-point exception is reported once, debug output from interrupt handlers no longer corrupts a thread's, and an out-of-memory Z-buffer asserts instead of drawing over low RAM.
+
+
+## AI Disclaimer
+
+LLM coding and testing make this continuation project possible.
+
+
+---
+
+
 <p align="center">
   <img src="https://github.com/user-attachments/assets/74c67b9b-ddb7-4527-bc61-86d244205c65#gh-dark-mode-only"
        id="gh-dark-mode-only"
