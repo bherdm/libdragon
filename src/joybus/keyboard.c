@@ -107,8 +107,10 @@ static keyboard_event_t keyboard_events[KEYBOARD_EVENT_QUEUE_SIZE];
 volatile uint8_t __keyboard_events_ridx = 0;
 /** @brief The event queue's write index (read by #keyboard_has_events). */
 volatile uint8_t __keyboard_events_widx = 0;
-/** @brief Reads paused (#keyboard_pause): only devices not yet known are read. */
-static volatile bool keyboard_paused = false;
+/** @brief Ports whose keys are paused (#keyboard_pause, #keyboard_pause_port). */
+static volatile uint8_t keyboard_paused_keys = 0;
+/** @brief Ports whose mouse is paused. */
+static volatile uint8_t keyboard_paused_mice = 0;
 
 /** @brief Is the read with the joypads in flight? */
 static volatile bool keyboard_main_pending = false;
@@ -135,16 +137,16 @@ static uint8_t keyboard_side_rotation = 0;
 /** @brief The Joybus block of the reads that can't join the joypads': full reads, and compact reads beside a gamepad. */
 static uint8_t keyboard_side_input[JOYBUS_BLOCK_SIZE];
 
-/** @brief The ports read with a compact read now: none of them while paused. */
+/** @brief The ports read with a compact read now: those with a keyboard or mouse that isn't paused. */
 static uint8_t keyboard_compact_now(void)
 {
-    return keyboard_paused ? 0 : keyboard_compact;
+    return keyboard_compact & ((keyboard_connected & ~keyboard_paused_keys) | (keyboard_mice & ~keyboard_paused_mice));
 }
 
-/** @brief The ports sent a full read now: those due one, and while paused only the devices not yet known. */
+/** @brief The ports sent a full read now: those due one whose keys aren't paused, and the devices not yet known. */
 static uint8_t keyboard_full_now(void)
 {
-    return keyboard_probing | (keyboard_paused ? 0 : keyboard_full);
+    return keyboard_probing | (keyboard_full & ~keyboard_paused_keys);
 }
 
 /** @brief Rebuild both blocks on the next vertical blank. */
@@ -215,12 +217,18 @@ static void keyboard_port_set(int port, const keyboard_key_t *now, int count, ui
     keyboard_port_update(port, now, count, modifiers);
 }
 
-/** @brief Release every key held on a port's keyboard, and its mouse's buttons. */
-static void keyboard_port_release(int port)
+/** @brief Release every key held on a port's keyboard. */
+static void keyboard_port_release_keys(int port)
 {
     static const keyboard_key_t none[1] = { KEYBOARD_KEY_NONE };
     keyboard_port_update(port, none, 0, 0);
     keyboard_ports[port].overflow = false;
+}
+
+/** @brief Release every key held on a port's keyboard, and its mouse's buttons. */
+static void keyboard_port_release(int port)
+{
+    keyboard_port_release_keys(port);
     keyboard_ports[port].buttons = 0;
 }
 
@@ -293,7 +301,8 @@ static void keyboard_port_full_read(int port, const joybus_cmd_brf_keyboard_read
     uint8_t status = keyboard_port_devices(port, cmd->recv.status);
     if (probing != keyboard_probing || compact != keyboard_compact || full != keyboard_full)
         keyboard_invalidate();
-    if (!(status & JOYBUS_BRF_KEYBOARD_STATUS_KEYBOARD)) return;
+    // A keyboard found while its port's keys are paused gives none until they resume
+    if (!(status & JOYBUS_BRF_KEYBOARD_STATUS_KEYBOARD) || (keyboard_paused_keys & bit)) return;
 
     // The modifiers come first as keys: the reply's order is kept for the rest
     keyboard_key_t now[KEYBOARD_KEYS_MAX];
@@ -322,6 +331,9 @@ static void keyboard_port_compact_read(int port, const uint8_t *cmd, bool error)
     const uint8_t *keys = kb->recv.keys;
     uint8_t status = keyboard_port_devices(port, kb->recv.status);
     if (cmd[0] == JOYBUS_COMMAND_ID_BRF_KEYBOARD_MOUSE_READ)
+        keys = mouse->recv.keys;
+    // A reply in flight when the mouse was paused brings it nothing
+    if (cmd[0] == JOYBUS_COMMAND_ID_BRF_KEYBOARD_MOUSE_READ && !(keyboard_paused_mice & (1 << port)))
     {
         volatile keyboard_port_hot_t *state = &keyboard_ports[port];
         uint8_t buttons = mouse->recv.buttons & JOYBUS_BRF_MOUSE_BUTTONS;
@@ -333,7 +345,6 @@ static void keyboard_port_compact_read(int port, const uint8_t *cmd, bool error)
         state->hwheel += (int8_t)mouse->recv.hwheel >> JOYBUS_BRF_MOUSE_WHEEL_SHIFT;
         state->pressed |= buttons & ~state->buttons;
         state->buttons = buttons;
-        keys = mouse->recv.keys;
     }
 
     // While the compact read isn't the whole story, the keys come with a full read
@@ -344,7 +355,7 @@ static void keyboard_port_compact_read(int port, const uint8_t *cmd, bool error)
         }
         return;
     }
-    if (!(status & JOYBUS_BRF_KEYBOARD_STATUS_KEYBOARD)) return;
+    if (!(status & JOYBUS_BRF_KEYBOARD_STATUS_KEYBOARD) || (keyboard_paused_keys & (1 << port))) return;
 
     // The keys fill the slots from the first
     keyboard_key_t now[KEYBOARD_KEYS_MAX];
@@ -357,7 +368,7 @@ static void keyboard_port_compact_read(int port, const uint8_t *cmd, bool error)
 static size_t keyboard_write_compact_read(int port, uint8_t *dst)
 {
     // The block is zeroed, so the reply's bytes need no writing
-    bool mouse = keyboard_mice & (1 << port);
+    bool mouse = keyboard_mice & ~keyboard_paused_mice & (1 << port);
     dst[JOYBUS_COMMAND_OFFSET_SEND_LEN] = 1;
     dst[JOYBUS_COMMAND_OFFSET_RECV_LEN] = mouse
         ? sizeof(((joybus_cmd_brf_keyboard_mouse_read_port_t *)0)->recv)
@@ -649,7 +660,7 @@ void keyboard_init(void)
     __keyboard_events_widx = 0;
     keyboard_main_valid = keyboard_side_valid = false;
     keyboard_side_rotation = 0;
-    keyboard_paused = false;
+    keyboard_paused_keys = keyboard_paused_mice = 0;
     memset((void *)keyboard_ports, 0, sizeof(keyboard_ports));
     enable_interrupts();
 
@@ -688,16 +699,34 @@ void keyboard_close(void)
     joybus_close();
 }
 
-void keyboard_pause(bool pause)
+/** @brief Pause or resume the keys and the mouse of some ports, releasing what newly paused ones held. */
+static void keyboard_pause_ports(uint8_t ports, uint8_t pause)
 {
-    ASSERT_KEYBOARD_INITIALIZED();
+    uint8_t keys = (pause & KEYBOARD_PAUSE_KEYS) ? ports : 0;
+    uint8_t mice = (pause & KEYBOARD_PAUSE_MOUSE) ? ports : 0;
     disable_interrupts();
-    if (pause && !keyboard_paused)
-        JOYPAD_PORT_FOREACH (port)
-            if ((keyboard_connected | keyboard_mice) & (1 << port)) keyboard_port_release(port);
-    keyboard_paused = pause;
+    JOYPAD_PORT_FOREACH (port)
+    {
+        if (keys & ~keyboard_paused_keys & (1 << port)) keyboard_port_release_keys(port);
+        if (mice & ~keyboard_paused_mice & (1 << port)) keyboard_ports[port].buttons = 0;
+    }
+    keyboard_paused_keys = (keyboard_paused_keys & ~ports) | keys;
+    keyboard_paused_mice = (keyboard_paused_mice & ~ports) | mice;
     keyboard_invalidate();
     enable_interrupts();
+}
+
+void keyboard_pause(uint8_t pause)
+{
+    ASSERT_KEYBOARD_INITIALIZED();
+    keyboard_pause_ports((1 << JOYPAD_PORT_COUNT) - 1, pause);
+}
+
+void keyboard_pause_port(joypad_port_t port, uint8_t pause)
+{
+    ASSERT_KEYBOARD_INITIALIZED();
+    ASSERT_KEYBOARD_PORT_VALID(port);
+    keyboard_pause_ports(1 << port, pause);
 }
 
 bool keyboard_is_connected(joypad_port_t port)

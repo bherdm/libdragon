@@ -541,28 +541,55 @@ LIBDRAGON_PREVIEW_API
 void keyboard_close(void);
 
 /**
- * @brief Stop reading the keyboards for a while, or start again.
+ * @anchor KEYBOARD_PAUSE
+ * @name What #keyboard_pause and #keyboard_pause_port pause
+ * @{
+ */
+#define KEYBOARD_PAUSE_KEYS   (1<<0) ///< The keyboard's keys
+#define KEYBOARD_PAUSE_MOUSE  (1<<1) ///< The mouse beside it
+#define KEYBOARD_PAUSE_ALL    (KEYBOARD_PAUSE_KEYS | KEYBOARD_PAUSE_MOUSE) ///< Both
+/** @} */
+
+/**
+ * @brief Pause the keys or the mice on every port, or resume them.
  * @preview
  *
- * While a keyboard is connected, the subsystem reads it on every vertical
- * blank. A program that wants no keys for a while (a scene where nothing
- * types, a menu without text) can pause the reads and save their time:
+ * While a keyboard or mouse is connected, the subsystem reads it on every
+ * vertical blank. A program that wants no keys for a while (a scene where
+ * nothing types, a menu without text), or no mouse, can pause them and save
+ * the reads' time:
  *
- * * Pausing releases every held key, queueing its release, and a mouse's
- *   buttons.
- * * While paused, known keyboards and mice aren't read: no events come, and
- *   LED changes wait. Detection carries on, and a keyboard that connects is
- *   read until it answers, so #keyboard_is_connected stays current, and so do
+ * * Pausing a port's keys releases its held keys, queueing their release;
+ *   pausing its mouse releases the mouse's buttons.
+ * * A port with both paused isn't read. With only its keys paused, its mouse
+ *   is read and the keys skipped; with only its mouse paused, it gets the
+ *   keyboard's shorter read. While a port's keys are paused, LED changes wait.
+ * * Detection carries on, and a keyboard that connects is read until it
+ *   answers, so #keyboard_is_connected stays current, and so do
  *   #keyboard_get_layout and #keyboard_get_arrangement as of a keyboard's
  *   last read.
  * * Resuming reads them again from the next vertical blank: keys held then
- *   arrive as presses, and a mouse's first read brings the motion the
- *   adapter kept while paused.
+ *   arrive as presses, and a mouse's first read brings the motion the adapter
+ *   kept while it was paused.
  *
- * @param pause true to stop reading, false to start again.
+ * @param pause What to pause on every port (@ref KEYBOARD_PAUSE), the rest
+ *              resumed: #KEYBOARD_PAUSE_ALL to stop reading, 0 to start again.
  */
 LIBDRAGON_PREVIEW_API
-void keyboard_pause(bool pause);
+void keyboard_pause(uint8_t pause);
+
+/**
+ * @brief Pause the keys or the mouse on one port, or resume them.
+ * @preview
+ *
+ * As #keyboard_pause, for one player's keyboard or mouse; the other ports
+ * stay as they are.
+ *
+ * @param port Joypad port (#joypad_port_t).
+ * @param pause What to pause there (@ref KEYBOARD_PAUSE), the rest resumed.
+ */
+LIBDRAGON_PREVIEW_API
+void keyboard_pause_port(joypad_port_t port, uint8_t pause);
 
 /**
  * @brief Is a keyboard connected to a port?

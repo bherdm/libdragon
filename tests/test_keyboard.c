@@ -152,7 +152,7 @@ static void kbt_reset(void)
     __keyboard_events_widx = 0;
     keyboard_main_valid = keyboard_side_valid = false;
     keyboard_side_rotation = 0;
-    keyboard_paused = false;
+    keyboard_paused_keys = keyboard_paused_mice = 0;
     memset((void *)keyboard_ports, 0, sizeof(keyboard_ports));
 }
 
@@ -537,7 +537,7 @@ void test_keyboard(TestContext *ctx)
     kbt_drain(evs, 64);
     kbt_read(KBT_KB, KEYBOARD_MODIFIER(KEYBOARD_KEY_LALT), (keyboard_key_t[]){ KEYBOARD_KEY_A }, 1);
     kbt_drain(evs, 64);
-    keyboard_pause(true);
+    keyboard_pause(KEYBOARD_PAUSE_ALL);
     n = kbt_drain(evs, 64);
     ASSERT(n == 2 && kbt_has(evs, n, KEYBOARD_KEY_A, false) && kbt_has(evs, n, KEYBOARD_KEY_LALT, false),
            "pausing didn't release A and Alt");
@@ -565,13 +565,50 @@ void test_keyboard(TestContext *ctx)
     ASSERT_EQUAL_HEX(keyboard_main_reads | keyboard_side_reads, 0, "a new keyboard still read after answering while paused");
 
     // Resuming reads them both again, the LEDs go, and held keys arrive as presses
-    keyboard_pause(false);
+    keyboard_pause(0);
     keyboard_build_main(false);
     ASSERT_EQUAL_HEX(keyboard_main_reads, (1 << JOYPAD_PORT_2) | (1 << JOYPAD_PORT_3), "keyboards not read after resuming");
     keyboard_build_side();
     ASSERT_EQUAL_HEX(keyboard_side_reads, 1 << JOYPAD_PORT_2, "the LEDs not sent after resuming");
     kbt_read(KBT_KB, 0, (keyboard_key_t[]){ KEYBOARD_KEY_B }, 1);
     ASSERT(keyboard_get_event(&ev) && ev.pressed && ev.key == KEYBOARD_KEY_B, "no press for a key held on resuming");
+
+    // Only the keys paused: port 2, with a mouse now, is still read with 0x2C, its keys skipped;
+    // port 3, a keyboard alone, isn't read
+    kbt_read(KBT_KB | JOYBUS_BRF_KEYBOARD_STATUS_MOUSE, 0, NULL, 0);
+    kbt_drain(evs, 64);
+    keyboard_pause(KEYBOARD_PAUSE_KEYS);
+    keyboard_build_main(false);
+    ASSERT_EQUAL_HEX(keyboard_main_reads, 1 << JOYPAD_PORT_2, "reads with only the keys paused");
+    ASSERT_EQUAL_HEX(keyboard_main_input[1 + 2], JOYBUS_COMMAND_ID_BRF_KEYBOARD_MOUSE_READ, "the mouse not read with the keys paused");
+    kbt_begin();
+    kbt_mouse(KBT_KB | JOYBUS_BRF_KEYBOARD_STATUS_MOUSE, 0, 0, 0, 0, 5, 0, (keyboard_key_t[]){ KEYBOARD_KEY_W }, 1);
+    kbt_end();
+    ASSERT(!keyboard_get_event(&ev), "keys taken while the keys were paused");
+    ASSERT_EQUAL_SIGNED(keyboard_get_mouse(JOYPAD_PORT_2).x, 5, "the mouse's motion lost while the keys were paused");
+
+    // Only the mouse paused: 0x2B, and a 0x2C reply in flight gives its keys and no motion
+    keyboard_pause(KEYBOARD_PAUSE_MOUSE);
+    keyboard_build_main(false);
+    ASSERT_EQUAL_HEX(keyboard_main_reads, (1 << JOYPAD_PORT_2) | (1 << JOYPAD_PORT_3), "reads with only the mouse paused");
+    ASSERT_EQUAL_HEX(keyboard_main_input[1 + 2], JOYBUS_COMMAND_ID_BRF_KEYBOARD_COMPACT_READ, "0x2C sent with the mouse paused");
+    kbt_begin();
+    kbt_mouse(KBT_KB | JOYBUS_BRF_KEYBOARD_STATUS_MOUSE, 0, KEYBOARD_MOUSE_BUTTON_LEFT, 1, -1, 7, 0, (keyboard_key_t[]){ KEYBOARD_KEY_W }, 1);
+    kbt_end();
+    ASSERT(keyboard_get_event(&ev) && ev.pressed && ev.key == KEYBOARD_KEY_W, "keys not taken with only the mouse paused");
+    mouse = keyboard_get_mouse(JOYPAD_PORT_2);
+    ASSERT(mouse.x == 0 && mouse.wheel == 0 && mouse.hwheel == 0 && mouse.buttons == 0 && mouse.pressed == 0,
+           "a paused mouse moved");
+
+    // One port paused: the others read
+    keyboard_pause(0);
+    keyboard_pause_port(JOYPAD_PORT_3, KEYBOARD_PAUSE_ALL);
+    keyboard_build_main(false);
+    ASSERT_EQUAL_HEX(keyboard_main_reads, 1 << JOYPAD_PORT_2, "a port's pause not its own");
+    ASSERT_EQUAL_HEX(keyboard_main_input[1 + 2], JOYBUS_COMMAND_ID_BRF_KEYBOARD_MOUSE_READ, "port 2's mouse paused with port 3");
+    keyboard_pause_port(JOYPAD_PORT_3, 0);
+    keyboard_build_main(false);
+    ASSERT_EQUAL_HEX(keyboard_main_reads, (1 << JOYPAD_PORT_2) | (1 << JOYPAD_PORT_3), "port 3 not read after resuming it");
     kbt_disconnect(JOYPAD_PORT_3);
     kbt_disconnect(JOYPAD_PORT_2);
 
