@@ -160,6 +160,13 @@ static void keyboard_port_read(int port, const joybus_cmd_brf_keyboard_read_port
     keyboard_key_t now[KEYBOARD_KEYS_MAX];
     int count = 0;
     while (count < KEYBOARD_KEYS_MAX && (now[count] = cmd->recv.keys[count])) count++;
+
+    // Most reads hold the keys the last one did: nothing to queue
+    if (count == state->count) {
+        int same = 0;
+        while (same < count && now[same] == state->key[same]) same++;
+        if (same == count) return;
+    }
     keyboard_port_update(port, now, count);
 }
 
