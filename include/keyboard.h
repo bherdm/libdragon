@@ -528,6 +528,25 @@ keyboard_arrangement_t keyboard_get_arrangement(joypad_port_t port);
 LIBDRAGON_PREVIEW_API
 bool keyboard_get_event(keyboard_event_t *event);
 
+/** @cond */
+extern volatile uint8_t __keyboard_events_ridx, __keyboard_events_widx;
+/** @endcond */
+
+/**
+ * @brief Are there key events to take?
+ * @preview
+ *
+ * Inline, and much cheaper than a #keyboard_get_event that finds the queue
+ * empty: a program can check it each frame and call #keyboard_get_event only
+ * when it says there are.
+ *
+ * @return true if #keyboard_get_event has an event to give.
+ */
+static inline bool keyboard_has_events(void)
+{
+    return __keyboard_events_ridx != __keyboard_events_widx;
+}
+
 /**
  * @brief The keys held on a port's keyboard, as of its last read.
  * @preview

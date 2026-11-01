@@ -78,10 +78,10 @@ static volatile uint8_t keyboard_connected = 0;
 static volatile keyboard_port_hot_t keyboard_ports[JOYPAD_PORT_COUNT];
 /** @brief The event queue (a ring buffer), written under interrupt. */
 static keyboard_event_t keyboard_events[KEYBOARD_EVENT_QUEUE_SIZE];
-/** @brief The event queue's read index. */
-static volatile uint8_t keyboard_events_ridx = 0;
-/** @brief The event queue's write index. */
-static volatile uint8_t keyboard_events_widx = 0;
+/** @brief The event queue's read index (read by #keyboard_has_events). */
+volatile uint8_t __keyboard_events_ridx = 0;
+/** @brief The event queue's write index (read by #keyboard_has_events). */
+volatile uint8_t __keyboard_events_widx = 0;
 /** @brief Are we in the middle of reading the keyboards? */
 static volatile bool keyboard_read_pending = false;
 /** @brief Is the cached Joybus input block for reading the keyboards valid? */
@@ -94,11 +94,11 @@ static volatile uint8_t keyboard_read_input[JOYBUS_BLOCK_SIZE] = {0};
 /** @brief Queue an event, under interrupt. While the queue is full, the event is dropped. */
 static void keyboard_event_push(int port, keyboard_key_t key, bool pressed)
 {
-    uint8_t widx = keyboard_events_widx;
+    uint8_t widx = __keyboard_events_widx;
     uint8_t next = (widx + 1) % KEYBOARD_EVENT_QUEUE_SIZE;
-    if (next == keyboard_events_ridx) return;
+    if (next == __keyboard_events_ridx) return;
     keyboard_events[widx] = (keyboard_event_t){ .key = key, .port = port, .pressed = pressed };
-    keyboard_events_widx = next;
+    __keyboard_events_widx = next;
 }
 
 /** @brief Is a key among the first @p count of a set of keys? */
@@ -310,8 +310,8 @@ void keyboard_init(void)
     disable_interrupts();
     keyboard_read_ports = 0;
     keyboard_connected = 0;
-    keyboard_events_ridx = 0;
-    keyboard_events_widx = 0;
+    __keyboard_events_ridx = 0;
+    __keyboard_events_widx = 0;
     keyboard_read_input_valid = false;
     keyboard_read_rotation = 0;
     memset((void *)keyboard_ports, 0, sizeof(keyboard_ports));
@@ -369,13 +369,15 @@ keyboard_arrangement_t keyboard_get_arrangement(joypad_port_t port)
 bool keyboard_get_event(keyboard_event_t *event)
 {
     ASSERT_KEYBOARD_INITIALIZED();
+    // Most calls find the queue empty: say so without turning interrupts off
+    if (!keyboard_has_events()) return false;
     disable_interrupts();
-    uint8_t ridx = keyboard_events_ridx;
-    bool any = ridx != keyboard_events_widx;
+    uint8_t ridx = __keyboard_events_ridx;
+    bool any = ridx != __keyboard_events_widx;
     if (any)
     {
         *event = keyboard_events[ridx];
-        keyboard_events_ridx = (ridx + 1) % KEYBOARD_EVENT_QUEUE_SIZE;
+        __keyboard_events_ridx = (ridx + 1) % KEYBOARD_EVENT_QUEUE_SIZE;
     }
     enable_interrupts();
     return any;

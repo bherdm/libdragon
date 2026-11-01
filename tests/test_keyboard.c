@@ -85,8 +85,8 @@ void test_keyboard(TestContext *ctx)
     keyboard_init_refcount = 1;
     keyboard_read_ports = 0;
     keyboard_connected = 0;
-    keyboard_events_ridx = 0;
-    keyboard_events_widx = 0;
+    __keyboard_events_ridx = 0;
+    __keyboard_events_widx = 0;
     keyboard_read_rotation = 0;
     memset((void *)keyboard_ports, 0, sizeof(keyboard_ports));
     DEFER(keyboard_init_refcount = 0; keyboard_read_ports = 0; keyboard_connected = 0);
@@ -130,7 +130,9 @@ void test_keyboard(TestContext *ctx)
     ASSERT(keyboard_is_connected(JOYPAD_PORT_2), "not a keyboard after its first reply");
     ASSERT_EQUAL_SIGNED(keyboard_get_layout(JOYPAD_PORT_2), KEYBOARD_LAYOUT_DE, "layout");
     ASSERT_EQUAL_SIGNED(keyboard_get_arrangement(JOYPAD_PORT_2), KEYBOARD_ARRANGEMENT_PC, "arrangement");
+    ASSERT(keyboard_has_events(), "no events to take after the first reply");
     n = keyboard_test_drain(evs, 64);
+    ASSERT(!keyboard_has_events(), "events to take after taking them all");
     ASSERT_EQUAL_SIGNED(n, 2, "first reply's events");
     ASSERT_EQUAL_HEX(evs[0].key, KEYBOARD_KEY_LSHIFT, "first press");
     ASSERT_EQUAL_UNSIGNED(evs[0].port, JOYPAD_PORT_2, "port");
