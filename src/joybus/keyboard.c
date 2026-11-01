@@ -90,6 +90,16 @@ static volatile bool keyboard_read_input_valid = false;
 static volatile uint8_t keyboard_read_rotation = 0;
 /** @brief Cached Joybus input block for reading the keyboards. */
 static volatile uint8_t keyboard_read_input[JOYBUS_BLOCK_SIZE] = {0};
+/** @brief Reads paused (#keyboard_pause): only devices not yet known to be keyboards are read. */
+static volatile bool keyboard_paused = false;
+
+/** @brief The ports to read now: every possible keyboard, less the known ones while paused. */
+static uint8_t keyboard_ports_to_read(void)
+{
+    uint8_t ports = keyboard_read_ports;
+    if (keyboard_paused) ports &= ~keyboard_connected;
+    return ports;
+}
 
 /** @brief Queue an event, under interrupt. While the queue is full, the event is dropped. */
 static void keyboard_event_push(int port, keyboard_key_t key, bool pressed)
@@ -152,7 +162,11 @@ static void keyboard_port_read(int port, const joybus_cmd_brf_keyboard_read_port
         }
         return;
     }
-    keyboard_connected |= 1 << port;
+    if (!(keyboard_connected & (1 << port))) {
+        keyboard_connected |= 1 << port;
+        // While paused, a keyboard is read only until it's known
+        keyboard_read_input_valid = false;
+    }
     state->settings = cmd->recv.settings;
     state->overflow = cmd->recv.status & JOYBUS_BRF_KEYBOARD_STATUS_EXCESS_KEYS;
 
@@ -203,7 +217,7 @@ static size_t keyboard_write_read_command(joypad_port_t port, uint8_t *dst)
  */
 static bool keyboard_build_read_block(uint8_t *input)
 {
-    uint8_t ports = keyboard_read_ports;
+    uint8_t ports = keyboard_ports_to_read();
     uint8_t read = 0;
     int reads = 0, last = 0;
     for (int k = 0; k < JOYPAD_PORT_COUNT && reads < KEYBOARD_READS_PER_BLOCK; k++)
@@ -235,6 +249,7 @@ static bool keyboard_build_read_block(uint8_t *input)
 static void keyboard_read_completed(const uint8_t *out)
 {
     // Walk the block's commands as they were sent: it may predate a port's change
+    uint8_t ports = keyboard_ports_to_read();
     size_t i = 0;
     JOYPAD_PORT_FOREACH (port)
     {
@@ -246,7 +261,7 @@ static void keyboard_read_completed(const uint8_t *out)
         }
         // The error flag (0x80) means no device answered
         uint8_t recv_len = out[i + JOYBUS_COMMAND_OFFSET_RECV_LEN];
-        if ((keyboard_read_ports & (1 << port)) &&
+        if ((ports & (1 << port)) &&
             out[i + JOYBUS_COMMAND_OFFSET_COMMAND_ID] == JOYBUS_COMMAND_ID_BRF_KEYBOARD_READ)
             keyboard_port_read(port, (const void *)&out[i + JOYBUS_COMMAND_METADATA_SIZE], recv_len & 0x80);
         i += JOYBUS_COMMAND_METADATA_SIZE + send_len + (recv_len & 0x3F);
@@ -264,7 +279,7 @@ static void keyboard_read_callback(uint64_t *out_dwords, void *ctx)
 static void keyboard_vi_interrupt_callback(void *ctx)
 {
     // Nothing to read, or async operations are disabled during reset
-    if (!keyboard_read_ports || exception_reset_time() > 0) return;
+    if (!keyboard_ports_to_read() || exception_reset_time() > 0) return;
 
     // Bail if this operation is already in-progress
     if (keyboard_read_pending) return;
@@ -321,6 +336,7 @@ void keyboard_init(void)
     __keyboard_events_widx = 0;
     keyboard_read_input_valid = false;
     keyboard_read_rotation = 0;
+    keyboard_paused = false;
     memset((void *)keyboard_ports, 0, sizeof(keyboard_ports));
     enable_interrupts();
 
@@ -348,6 +364,18 @@ void keyboard_close(void)
 
     vi_close();
     joybus_close();
+}
+
+void keyboard_pause(bool pause)
+{
+    ASSERT_KEYBOARD_INITIALIZED();
+    disable_interrupts();
+    if (pause && !keyboard_paused)
+        JOYPAD_PORT_FOREACH (port)
+            if (keyboard_connected & (1 << port)) keyboard_port_release(port);
+    keyboard_paused = pause;
+    keyboard_read_input_valid = false;
+    enable_interrupts();
 }
 
 bool keyboard_is_connected(joypad_port_t port)

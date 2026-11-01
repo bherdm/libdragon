@@ -478,6 +478,28 @@ LIBDRAGON_PREVIEW_API
 void keyboard_close(void);
 
 /**
+ * @brief Stop reading the keyboards for a while, or start again.
+ * @preview
+ *
+ * While a keyboard is connected, the subsystem reads it on every vertical
+ * blank. A program that wants no keys for a while (a scene where nothing
+ * types, a menu without text) can pause the reads and save their time:
+ *
+ * * Pausing releases every held key, queueing its release.
+ * * While paused, known keyboards aren't read: no events come, and LED
+ *   changes wait. Detection carries on, and a keyboard that connects is read
+ *   until it answers, so #keyboard_is_connected stays current, and so do
+ *   #keyboard_get_layout and #keyboard_get_arrangement as of a keyboard's
+ *   last read.
+ * * Resuming reads them again from the next vertical blank: keys held then
+ *   arrive as presses.
+ *
+ * @param pause true to stop reading, false to start again.
+ */
+LIBDRAGON_PREVIEW_API
+void keyboard_pause(bool pause);
+
+/**
  * @brief Is a keyboard connected to a port?
  * @preview
  *

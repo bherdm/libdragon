@@ -289,6 +289,34 @@ void test_keyboard(TestContext *ctx)
     }
     ASSERT_EQUAL_SIGNED(count, KEYBOARD_EVENT_QUEUE_SIZE - 1, "queue size");
 
+    // Paused: held keys are released, a known keyboard isn't read, and a reply in flight is ignored
+    keyboard_test_drain(evs, 64);
+    keyboard_test_read(0, (keyboard_key_t[]){ KEYBOARD_KEY_A }, 1);
+    ASSERT(keyboard_get_event(&ev) && ev.pressed, "no press before pausing");
+    keyboard_pause(true);
+    ASSERT(keyboard_get_event(&ev) && !ev.pressed && ev.key == KEYBOARD_KEY_A, "pausing didn't release A");
+    ASSERT_EQUAL_HEX(keyboard_ports_to_read(), 0, "a known keyboard read while paused");
+    keyboard_test_read(0, (keyboard_key_t[]){ KEYBOARD_KEY_B }, 1);
+    ASSERT(!keyboard_get_event(&ev), "a reply used while paused");
+    ASSERT(keyboard_is_connected(JOYPAD_PORT_2), "pausing disconnected the keyboard");
+
+    // A keyboard that connects while paused is read until it answers, then not
+    keyboard_test_connect(JOYPAD_PORT_3);
+    ASSERT_EQUAL_HEX(keyboard_ports_to_read(), 1 << JOYPAD_PORT_3, "a new keyboard not read while paused");
+    uint8_t reply3[KEYBOARD_READ_COMMAND_SIZE];
+    keyboard_test_reply(reply3, JOYBUS_BRF_MARKER, JOYBUS_BRF_KEYBOARD_READ_VERSION, 0, KEYBOARD_LAYOUT_UK, NULL, 0, 0);
+    keyboard_port_read(JOYPAD_PORT_3, (const void *)&reply3[JOYBUS_COMMAND_METADATA_SIZE], false);
+    ASSERT(keyboard_is_connected(JOYPAD_PORT_3), "a new keyboard not known after answering while paused");
+    ASSERT_EQUAL_SIGNED(keyboard_get_layout(JOYPAD_PORT_3), KEYBOARD_LAYOUT_UK, "a new keyboard's layout while paused");
+    ASSERT_EQUAL_HEX(keyboard_ports_to_read(), 0, "a new keyboard still read after answering while paused");
+
+    // Resuming reads them both again, and held keys arrive as presses
+    keyboard_pause(false);
+    ASSERT_EQUAL_HEX(keyboard_ports_to_read(), (1 << JOYPAD_PORT_2) | (1 << JOYPAD_PORT_3), "keyboards not read after resuming");
+    keyboard_test_read(0, (keyboard_key_t[]){ KEYBOARD_KEY_B }, 1);
+    ASSERT(keyboard_get_event(&ev) && ev.pressed && ev.key == KEYBOARD_KEY_B, "no press for a key held on resuming");
+    keyboard_test_disconnect(JOYPAD_PORT_3);
+
     // Names
     ASSERT(strcmp(keyboard_key_name(KEYBOARD_KEY_A), "A") == 0, "A's name");
     ASSERT(strcmp(keyboard_key_name(KEYBOARD_KEY_0), "0") == 0, "0's name");
