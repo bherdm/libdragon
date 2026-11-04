@@ -52,9 +52,60 @@ void test_brf(TestContext *ctx)
     ASSERT_EQUAL_UNSIGNED(status.led_level, 3, "LED level");
     ASSERT(status.device[0] == BRF_DEVICE_GAMEPAD && status.device[1] == BRF_DEVICE_KEYBOARD &&
            status.device[2] == BRF_DEVICE_NONE && status.device[3] == BRF_DEVICE_MOUSE, "devices");
+    ASSERT(!status.single_port && !status.asleep, "single port or asleep");
     cmd = brf_test_reply(JOYBUS_BRF_MARKER, 1, 0, 0, 1, 0, 0, 0, 0);
     brf_reply_status(&cmd, &status);
     ASSERT(!status.pairing, "pairing open");
+    cmd = brf_test_reply(JOYBUS_BRF_MARKER, 1, 0, JOYBUS_BRF_FLAG_SINGLE_PORT | JOYBUS_BRF_FLAG_ASLEEP, 0, 0, 0, 0, 0);
+    brf_reply_status(&cmd, &status);
+    ASSERT(!status.pairing && status.single_port && status.asleep, "single port and asleep");
+
+    // A verb's own data, from byte 4: a board's address in order
+    cmd = brf_test_reply(JOYBUS_BRF_MARKER, 1, 0, 0x24, 0x6F, 0x28, 0x01, 0x02, 0x03);
+    const uint8_t address[6] = { 0x24, 0x6F, 0x28, 0x01, 0x02, 0x03 };
+    ASSERT(memcmp(brf_reply_data(&cmd), address, 6) == 0, "the board's address");
+
+    // Flash status: receiving, no error, 0x012345 bytes written; failed writing
+    brf_flash_status_t flash;
+    cmd = brf_test_reply(JOYBUS_BRF_MARKER, 1, 0, 1, 0, 0x01, 0x23, 0x45, 0);
+    brf_reply_flash_status(&cmd, &flash);
+    ASSERT(flash.state == BRF_FLASH_RECEIVING && flash.error == BRF_FLASH_ERROR_NONE, "receiving");
+    ASSERT_EQUAL_HEX(flash.written, 0x012345, "bytes written");
+    cmd = brf_test_reply(JOYBUS_BRF_MARKER, 1, 0, 3, 2, 0, 0, 0, 0);
+    brf_reply_flash_status(&cmd, &flash);
+    ASSERT(flash.state == BRF_FLASH_FAILED && flash.error == BRF_FLASH_ERROR_WRITE, "failed writing");
+
+    // Log: where the log is, and four bytes from a position, whose top bit is clear
+    cmd = brf_test_reply(JOYBUS_BRF_MARKER, 1, 0, 0x80 | 0x12, 0x34, 0x02, 0x00, 0, 0);
+    ASSERT(brf_reply_log_where(&cmd), "where the log is");
+    ASSERT_EQUAL_HEX(brf_reply_log_position(&cmd), 0x1234, "the head");
+    cmd = brf_test_reply(JOYBUS_BRF_MARKER, 1, 0, 0x7F, 0xFC, 'a', 'b', 'c', 'd');
+    ASSERT(!brf_reply_log_where(&cmd), "a log position");
+    ASSERT_EQUAL_HEX(brf_reply_log_position(&cmd), 0x7FFC, "the position");
+    ASSERT_EQUAL_UNSIGNED(brf_log_behind(5, 0x7FFE), 7, "behind across the wrap");
+    ASSERT_EQUAL_UNSIGNED(brf_log_behind(0x100, 0x100), 0, "at the head");
+
+    // A flash chunk: 36 bytes sent, 3 received, and a Controller Pak write's CRC
+    joybus_cmd_brf_flash_chunk_port_t chunk;
+    ASSERT_EQUAL_UNSIGNED(sizeof(chunk.send), 36, "chunk send size");
+    ASSERT_EQUAL_UNSIGNED(sizeof(chunk.recv), 3, "chunk receive size");
+    uint8_t data[BRF_FLASH_CHUNK_SIZE];
+    for (int fill = 0; fill < 3; fill++)
+    {
+        for (int i = 0; i < BRF_FLASH_CHUNK_SIZE; i++)
+            data[i] = fill == 0 ? 0x00 : fill == 1 ? i * 37 + 5 : 0xFF;
+        // The bitwise CRC the adapter checks: x^8 + x^7 + x^2 + 1, over the data and a zero byte
+        uint8_t crc = 0;
+        for (int i = 0; i <= BRF_FLASH_CHUNK_SIZE; i++)
+            for (int bit = 7; bit >= 0; bit--)
+            {
+                uint8_t xor = (crc & 0x80) ? 0x85 : 0x00;
+                crc <<= 1;
+                if (i < BRF_FLASH_CHUNK_SIZE && (data[i] & (1 << bit))) crc |= 1;
+                crc ^= xor;
+            }
+        ASSERT_EQUAL_HEX(brf_chunk_crc(data), crc, "a chunk's CRC, fill %d", fill);
+    }
 
     // Keyboard settings: US Mac, German PC, French Mac classic, Japanese PC until power off
     brf_keyboard_settings_t settings[JOYPAD_PORT_COUNT];

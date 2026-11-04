@@ -127,6 +127,13 @@
  * port's keyboard settings.
  */
 #define JOYBUS_COMMAND_ID_BRF_COMMAND           0x7B
+/**
+ * @brief "BlueRetroForever Flash Chunk" Joybus command identifier.
+ *
+ * 32 bytes of a firmware image for BlueRetroForever, between the command's
+ * flash begin and flash end verbs.
+ */
+#define JOYBUS_COMMAND_ID_BRF_FLASH_CHUNK       0x7C
 /** @brief "64GB Link Cable Read" Joybus command identifier. */
 #define JOYBUS_COMMAND_ID_64GB_LINK_CABLE_READ        0x13
 /** @brief "GBA Link Cable Read" Joybus command identifier. */
@@ -590,8 +597,40 @@ typedef struct __attribute__((packed)) joybus_cmd_brf_keyboard_mouse_read_port_s
 #define JOYBUS_BRF_VERB_KEYBOARD_SETTINGS         0x05
 /** @brief Verb: set keyboard settings (arg0: port 0-3, or 0xFF for all; arg1: a settings byte). */
 #define JOYBUS_BRF_VERB_SET_KEYBOARD_SETTINGS     0x06
+/** @brief Verb: stop searching for devices, and don't start again until woken. */
+#define JOYBUS_BRF_VERB_SLEEP                     0x07
+/** @brief Verb: wake from sleep. */
+#define JOYBUS_BRF_VERB_WAKE                      0x08
+/** @brief Verb: the log (arg0-1: a position, big-endian); the reply's bytes 4-9 are staged for the next request. */
+#define JOYBUS_BRF_VERB_LOG                       0x09
+/** @brief Verb: the firmware's version string (arg0: a chunk, 0-7); the reply's bytes 4-9 are staged for the next request. */
+#define JOYBUS_BRF_VERB_FIRMWARE_VERSION          0x0A
+/** @brief Verb: begin a flash: a firmware image follows in #JOYBUS_COMMAND_ID_BRF_FLASH_CHUNK commands. */
+#define JOYBUS_BRF_VERB_FLASH_BEGIN               0x0B
+/** @brief Verb: the image is whole: check it, and boot it from the next restart. */
+#define JOYBUS_BRF_VERB_FLASH_END                 0x0C
+/** @brief Verb: the flash's state, in the reply's bytes 4-9. */
+#define JOYBUS_BRF_VERB_FLASH_STATUS              0x0D
+/** @brief Verb: abandon a flash. */
+#define JOYBUS_BRF_VERB_FLASH_ABORT               0x0E
+/** @brief Verb: restart the adapter. */
+#define JOYBUS_BRF_VERB_RESTART                   0x0F
+/** @brief Verb: the board's Bluetooth address, in the reply's bytes 4-9. */
+#define JOYBUS_BRF_VERB_BOARD                     0x10
 /** @brief Flags bit: pairing is open. */
 #define JOYBUS_BRF_FLAG_PAIRING                   (1<<0)
+/** @brief Flags bit: a single-port adapter, whose paired devices share its port. */
+#define JOYBUS_BRF_FLAG_SINGLE_PORT               (1<<1)
+/** @brief Flags bit: asleep: it doesn't search for devices on its own. */
+#define JOYBUS_BRF_FLAG_ASLEEP                    (1<<2)
+/** @brief The log verb's position asking where the log is: the reply holds 0x8000 | the head, then the oldest position kept. */
+#define JOYBUS_BRF_LOG_WHERE                      0x8000
+/** @brief A log position's bits: positions count bytes since the adapter booted, modulo 0x8000. */
+#define JOYBUS_BRF_LOG_POSITION                   0x7FFF
+/** @brief How many chunks of four bytes the version string has at most. */
+#define JOYBUS_BRF_VERSION_CHUNKS                 8
+/** @brief A flash chunk's data size. */
+#define JOYBUS_BRF_FLASH_CHUNK_SIZE               32
 /** @} */
 
 /**
@@ -633,6 +672,39 @@ typedef struct __attribute__((packed)) joybus_cmd_brf_command_port_s
         uint8_t ports[4];
     } recv;
 } joybus_cmd_brf_command_port_t;
+
+/**
+ * @brief "BlueRetroForever Flash Chunk" Joybus command structure.
+ *
+ * The CRC is a Controller Pak write's, over the data; the adapter checks it.
+ * The reply is the chunk's result, 0xA0 for taken, and the sequence the
+ * adapter expects next.
+ *
+ * @see #JOYBUS_COMMAND_ID_BRF_FLASH_CHUNK
+ */
+typedef struct __attribute__((packed)) joybus_cmd_brf_flash_chunk_port_s
+{
+    /** @brief "BlueRetroForever Flash Chunk" command send data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief Joybus command ID (#JOYBUS_COMMAND_ID_BRF_FLASH_CHUNK) */
+        uint8_t command;
+        /** @brief The chunk's sequence number, from 0 */
+        uint16_t sequence;
+        /** @brief The data's CRC */
+        uint8_t crc;
+        /** @brief The image's 32 bytes at sequence * 32 */
+        uint8_t data[JOYBUS_BRF_FLASH_CHUNK_SIZE];
+    } send;
+    /** @brief "BlueRetroForever Flash Chunk" command receive data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief The chunk's result */
+        uint8_t result;
+        /** @brief The sequence number expected next */
+        uint16_t next;
+    } recv;
+} joybus_cmd_brf_flash_chunk_port_t;
 
 /**
  * @brief "GameCube Controller Read" Joybus command structure.
