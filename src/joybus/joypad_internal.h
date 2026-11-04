@@ -14,7 +14,7 @@
 #include <stdint.h>
 
 #include "joypad_accessory_internal.h"
-#include "utils.h"
+#include "../utils.h"
 
 /**
  * @addtogroup joypad
@@ -155,6 +155,27 @@ bool __joypad_is_initialized(void);
  * @brief Toggle GameCube rumble and keep cached read command in sync.
  */
 void __joypad_gcn_controller_rumble_toggle(joypad_port_t port, bool active);
+
+/**
+ * @name The Joypads' read, for the Keyboard subsystem
+ *
+ * Once #keyboard_init runs, the Keyboard subsystem's read on each vertical
+ * blank replaces #joypad_vi_interrupt_callback and reads the Joypads with the
+ * keyboards, in one Joybus operation: it sets #joypad_read_pending, and its
+ * reply goes to #joypad_read_output, which #joypad_poll walks as it walks the
+ * Joypads' own.
+ * @{
+ */
+extern volatile bool joypad_read_pending;
+extern volatile uint8_t joypad_read_output[JOYBUS_BLOCK_SIZE];
+void joypad_vi_interrupt_callback(void *ctx);
+/**
+ * @brief Set while the Keyboard subsystem's read has taken the Joypads' place:
+ *        #joypad_init installs no vertical blank handler, #joypad_close removes
+ *        none, and #keyboard_close puts it back.
+ */
+extern bool __joypad_read_taken;
+/** @} */
 
 #ifdef __cplusplus
 }

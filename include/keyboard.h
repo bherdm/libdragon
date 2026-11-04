@@ -18,17 +18,19 @@
  * @ingroup peripherals
  * @brief Full-size keyboards, through BlueRetroForever.
  *
- * The Keyboard subsystem reads the full-size Bluetooth keyboards that
- * BlueRetroForever, a controller adapter, connects to the controller ports:
- * every key of them, ten at once, on any port.
+ * The Keyboard subsystem reads the full-size Bluetooth keyboards, and the
+ * mice beside them, that BlueRetroForever, a controller adapter, connects to
+ * the controller ports: every keyboard and mouse connected, on every frame.
  *
  * To use it, call #keyboard_init. Keyboards are found by the Joybus
  * subsystem's background detection, so plugging one in or pulling it out is
- * noticed within a second. While one is connected, the subsystem reads every
- * keyboard in one Joybus operation of its own on each vertical blank, beside
- * the @ref joypad "Joypad subsystem's" read, and with none connected it reads
- * nothing. It is independent of the Joypad subsystem: a program that doesn't
- * call #keyboard_init links none of it, and its joypad reads are unchanged.
+ * noticed within a second. On each vertical blank, the subsystem reads the
+ * keyboards inside the @ref joypad "Joypad subsystem's" own Joybus operation,
+ * which it takes over while both are initialized, so a keyboard costs little
+ * more than its reply. A keyboard on a port the adapter presents as a
+ * controller, because a gamepad shares it, is read in a second operation, as
+ * are the rare full reads below. A program that doesn't call #keyboard_init
+ * links none of it, and its joypad reads are unchanged.
  *
  * Every read is compared with the one before it, under interrupt, and each
  * key that went down or up becomes an event (#keyboard_event_t) in a queue.
@@ -44,22 +46,34 @@
  * (#keyboard_get_layout, #keyboard_get_arrangement), Shift and Caps Lock, and
  * key repeat.
  *
- * A keyboard reports ten keys at once, the modifiers among them: the held
- * modifiers first, then the other keys in the order they went down, then
- * media and system keys. With more held, it reports the first ten and says so
- * (#keyboard_keys_t.overflow).
+ * A keyboard reports its modifiers (Ctrl, Shift, Alt and the Windows or
+ * Command key, either side) as bits (#keyboard_keys_t.modifiers), and five
+ * other keys at once: those in the order they went down, then media and
+ * system keys. With more held, it reports the first five and says so
+ * (#keyboard_keys_t.overflow). A modifier going down or up is an event too.
+ *
+ * A mouse sharing a port with a keyboard or a gamepad is read with them:
+ * #keyboard_get_mouse gives its motion and wheels since the last call, and its
+ * buttons. BlueRetroForever puts a keyboard, a mouse and a gamepad on one
+ * port when they're paired to a single-port adapter. A mouse alone on a port
+ * is an N64 mouse, which the Joypad subsystem reads.
  *
  * #keyboard_set_leds lights the keyboard's lock LEDs. None are lit by default,
  * and Caps Lock's LED doesn't follow the key by itself: the program decides
  * what Caps Lock does, and lights it.
  *
- * BlueRetroForever presents a keyboard with the Randnet keyboard's identity
- * and answers its own read, command 0x2A, which the subsystem sends when a
- * keyboard connects. A Randnet keyboard (RND-001), or a port the adapter has
- * set to classic mode for the Randnet's own software, doesn't answer it, and
- * isn't a keyboard to this subsystem. When a port's mode changes, the adapter
- * leaves it silent for longer than detection takes to notice, so the keyboard
- * goes and comes back as the new mode's.
+ * BlueRetroForever presents a keyboard with the Randnet keyboard's identity,
+ * or a controller's when a gamepad shares the port, and answers its own full
+ * read, command 0x2A, which the subsystem sends to both when they connect. A
+ * port whose full read answers is read on every frame with a compact read:
+ * 0x2B, seven bytes, or 0x2C, twelve with a mouse. The full read comes again
+ * only when a compact read asks for it (the adapter's settings changed, or a
+ * media, system or fn key is held or went up) and when the LEDs change. A
+ * Randnet keyboard (RND-001), an adapter whose full read is an older version,
+ * or a port the adapter has set to classic mode for the Randnet's own
+ * software, doesn't answer it, and isn't a keyboard to this subsystem. When a port's mode changes, the adapter leaves it silent
+ * for longer than detection takes to notice, so the keyboard goes and comes
+ * back as the new mode's.
  *
  * @{
  */
@@ -396,8 +410,35 @@ typedef uint16_t keyboard_key_t;
 #define KEYBOARD_LED_KANA         (1<<4) ///< Kana LED
 /** @} */
 
-/** @brief The most keys a keyboard reports held at once, modifiers among them. */
-#define KEYBOARD_KEYS_MAX 10
+/**
+ * @anchor KEYBOARD_MODIFIER
+ * @name Modifier bits
+ *
+ * The modifiers in #keyboard_keys_t.modifiers, as HID reports them: a bit
+ * each, from #KEYBOARD_KEY_LCTRL's to #KEYBOARD_KEY_RGUI's.
+ * @{
+ */
+#define KEYBOARD_MODIFIER(key)   (1 << ((key) - KEYBOARD_KEY_LCTRL)) ///< A modifier key's bit
+#define KEYBOARD_MODIFIER_CTRL   (KEYBOARD_MODIFIER(KEYBOARD_KEY_LCTRL) | KEYBOARD_MODIFIER(KEYBOARD_KEY_RCTRL))   ///< Either Ctrl
+#define KEYBOARD_MODIFIER_SHIFT  (KEYBOARD_MODIFIER(KEYBOARD_KEY_LSHIFT) | KEYBOARD_MODIFIER(KEYBOARD_KEY_RSHIFT)) ///< Either Shift
+#define KEYBOARD_MODIFIER_ALT    (KEYBOARD_MODIFIER(KEYBOARD_KEY_LALT) | KEYBOARD_MODIFIER(KEYBOARD_KEY_RALT))     ///< Either Alt (Option on a Mac)
+#define KEYBOARD_MODIFIER_GUI    (KEYBOARD_MODIFIER(KEYBOARD_KEY_LGUI) | KEYBOARD_MODIFIER(KEYBOARD_KEY_RGUI))     ///< Either Windows key (Command on a Mac)
+/** @} */
+
+/** @brief The most keys besides the modifiers a keyboard reports held at once. */
+#define KEYBOARD_KEYS_MAX 5
+
+/**
+ * @anchor KEYBOARD_MOUSE_BUTTON
+ * @name Mouse buttons
+ * @{
+ */
+#define KEYBOARD_MOUSE_BUTTON_LEFT     (1<<0) ///< Left button
+#define KEYBOARD_MOUSE_BUTTON_RIGHT    (1<<1) ///< Right button
+#define KEYBOARD_MOUSE_BUTTON_MIDDLE   (1<<2) ///< Middle button (the wheel's)
+#define KEYBOARD_MOUSE_BUTTON_BACK     (1<<3) ///< Back (button 4)
+#define KEYBOARD_MOUSE_BUTTON_FORWARD  (1<<4) ///< Forward (button 5)
+/** @} */
 
 /** @brief The layout BlueRetroForever is set to for a keyboard: what its keys are labelled. */
 typedef enum
@@ -448,22 +489,44 @@ typedef struct keyboard_event_s
 typedef struct keyboard_keys_s
 {
     /**
-     * @brief The held keys: the modifiers first, then the other keys in the
-     *        order they went down, then media and system keys. The entries
-     *        after the last are #KEYBOARD_KEY_NONE.
+     * @brief The held keys besides the modifiers: in the order they went
+     *        down, then media and system keys. The entries after the last are
+     *        #KEYBOARD_KEY_NONE.
      */
     keyboard_key_t key[KEYBOARD_KEYS_MAX];
-    /** @brief More keys are held than the keyboard reports; these are the first ten. */
+    /** @brief The held modifiers (@ref KEYBOARD_MODIFIER). */
+    uint8_t modifiers;
+    /** @brief More keys are held than the keyboard reports; these are the first five. */
     bool overflow;
 } keyboard_keys_t;
+
+/** @brief A mouse beside a keyboard: what it did since the last #keyboard_get_mouse. */
+typedef struct keyboard_mouse_s
+{
+    /** @brief Motion right since the last call, in the mouse's own counts; left is negative. */
+    int32_t x;
+    /** @brief Motion down since the last call; up is negative. */
+    int32_t y;
+    /** @brief Wheel clicks away from the user since the last call; towards is negative. */
+    int16_t wheel;
+    /** @brief Horizontal wheel clicks right since the last call; left is negative. */
+    int16_t hwheel;
+    /** @brief The buttons held as of the last read (@ref KEYBOARD_MOUSE_BUTTON). */
+    uint8_t buttons;
+    /** @brief The buttons that went down since the last call, even if they went up again. */
+    uint8_t pressed;
+} keyboard_mouse_t;
 
 /**
  * @brief Initialize the Keyboard subsystem.
  * @preview
  *
  * Starts the Joybus subsystem's background detection (#joybus_init) and a
- * read on each vertical blank, which reads only while a keyboard is
- * connected. Calls are counted, as #joypad_init's are.
+ * read on each vertical blank. While the Joypad subsystem is initialized,
+ * that read is the joypads' own, with each keyboard's compact read in place
+ * of its port's skip; with no keyboard connected, it reads the joypads alone.
+ * It can be called before or after #joypad_init. Calls are counted, as
+ * #joypad_init's are.
  */
 LIBDRAGON_PREVIEW_API
 void keyboard_init(void);
@@ -485,14 +548,16 @@ void keyboard_close(void);
  * blank. A program that wants no keys for a while (a scene where nothing
  * types, a menu without text) can pause the reads and save their time:
  *
- * * Pausing releases every held key, queueing its release.
- * * While paused, known keyboards aren't read: no events come, and LED
- *   changes wait. Detection carries on, and a keyboard that connects is read
- *   until it answers, so #keyboard_is_connected stays current, and so do
+ * * Pausing releases every held key, queueing its release, and a mouse's
+ *   buttons.
+ * * While paused, known keyboards and mice aren't read: no events come, and
+ *   LED changes wait. Detection carries on, and a keyboard that connects is
+ *   read until it answers, so #keyboard_is_connected stays current, and so do
  *   #keyboard_get_layout and #keyboard_get_arrangement as of a keyboard's
  *   last read.
  * * Resuming reads them again from the next vertical blank: keys held then
- *   arrive as presses.
+ *   arrive as presses, and a mouse's first read brings the motion the
+ *   adapter kept while paused.
  *
  * @param pause true to stop reading, false to start again.
  */
@@ -516,8 +581,8 @@ bool keyboard_is_connected(joypad_port_t port);
  * @brief The layout BlueRetroForever is set to for a port's keyboard.
  * @preview
  *
- * The adapter sends it with every read, so a change made in its settings
- * shows from the next frame.
+ * A change made in the adapter's settings shows within two frames: the
+ * compact read asks for a full read, which carries it.
  *
  * @param port Joypad port (#joypad_port_t).
  * @return The layout, #KEYBOARD_LAYOUT_NONE with no keyboard, or a value
@@ -583,8 +648,8 @@ keyboard_keys_t keyboard_get_keys(joypad_port_t port);
  * @brief Light a port's keyboard LEDs.
  * @preview
  *
- * The LEDs are sent with every read, so they take effect from the next frame,
- * and they stay as set when a keyboard is unplugged and plugged in again.
+ * The LEDs go with a full read, sent on the next frame, and they stay as set
+ * when a keyboard is unplugged and plugged in again.
  *
  * @param port Joypad port (#joypad_port_t).
  * @param leds The LEDs to light (@ref KEYBOARD_LED); the rest go out.
@@ -601,6 +666,31 @@ void keyboard_set_leds(joypad_port_t port, uint8_t leds);
  */
 LIBDRAGON_PREVIEW_API
 uint8_t keyboard_get_leds(joypad_port_t port);
+
+/**
+ * @brief Is a mouse beside a keyboard on a port?
+ * @preview
+ *
+ * @param port Joypad port (#joypad_port_t).
+ * @return true if a mouse shares the port with a keyboard, or with a gamepad.
+ */
+LIBDRAGON_PREVIEW_API
+bool keyboard_mouse_is_connected(joypad_port_t port);
+
+/**
+ * @brief Take what a port's mouse did since the last call.
+ * @preview
+ *
+ * The motion and wheels add up over the reads between two calls, so a game
+ * running below the display's frame rate loses none of them, and the call
+ * starts them again from zero. The motion is the mouse's own counts, as the
+ * adapter passes them on: the program applies its own sensitivity.
+ *
+ * @param port Joypad port (#joypad_port_t).
+ * @return The mouse's motion, wheels and buttons; all zero with no mouse.
+ */
+LIBDRAGON_PREVIEW_API
+keyboard_mouse_t keyboard_get_mouse(joypad_port_t port);
 
 /**
  * @brief A key's name: its constant's, without `KEYBOARD_KEY_`.

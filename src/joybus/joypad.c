@@ -52,16 +52,16 @@ static joypad_port_t bb_hack_flags_swap_port( joypad_port_t port )
  * @name "Hot" (interrupt-driven) global state
  * @{
  */
-/** @brief Are we in the middle of reading the Joypads? */
-static volatile bool joypad_read_pending = false;
+/** @brief Are we in the middle of reading the Joypads? (The Keyboard subsystem's read sets it too.) */
+volatile bool joypad_read_pending = false;
 /** @brief Is the cached Joybus input block for reading Joypads valid? */
 static volatile bool joypad_read_input_valid = false;
 /** @brief Cached offsets of Joypad read commands for each port in #joypad_read_input. */
 static volatile size_t joypad_read_input_offsets[JOYPAD_PORT_COUNT] = {0};
 /** @brief Cached Joybus input block for reading Joypads. */
 static volatile uint8_t joypad_read_input[JOYBUS_BLOCK_SIZE] = {0};
-/** @brief Cached Joybus output block for reading Joypads. */
-static volatile uint8_t joypad_read_output[JOYBUS_BLOCK_SIZE] = {0};
+/** @brief Cached Joybus output block for reading Joypads. (The Keyboard subsystem's read writes it too.) */
+volatile uint8_t joypad_read_output[JOYBUS_BLOCK_SIZE] = {0};
 
 /** @brief Are we in the middle of reading GameCube origins? */
 static volatile bool joypad_gcn_origin_pending = false;
@@ -545,9 +545,9 @@ static void joypad_read_async(void)
 }
 
 /**
- * @brief Callback for VI interrupt to read and identify Joypads.
+ * @brief Callback for VI interrupt to read and identify Joypads (the Keyboard subsystem's read builds the same commands).
  */
-static void joypad_vi_interrupt_callback(void* ctx)
+void joypad_vi_interrupt_callback(void* ctx)
 {
     joypad_read_async();
 }
@@ -624,8 +624,8 @@ void joypad_init(void)
     joybus_detect_now();
     joypad_read();
 
-    // Update the Joypads on vblank interrupt
-    vi_install_vblank_handler(joypad_vi_interrupt_callback, NULL);
+    // Update the Joypads on vblank interrupt, unless the Keyboard subsystem's read has taken their place
+    if (!__joypad_read_taken) vi_install_vblank_handler(joypad_vi_interrupt_callback, NULL);
 }
 
 void joypad_close(void)
@@ -633,8 +633,8 @@ void joypad_close(void)
     // Do nothing if there are still dangling references.
 	if (--joypad_init_refcount > 0) { return; }
 
-    // Stop updating the Joypads on vblank interrupt
-    vi_uninstall_vblank_handler(joypad_vi_interrupt_callback, NULL);
+    // Stop updating the Joypads on vblank interrupt, unless the Keyboard subsystem's read has taken their place
+    if (!__joypad_read_taken) vi_uninstall_vblank_handler(joypad_vi_interrupt_callback, NULL);
     const joypad_accessory_library_vtable_t *vtable = __joypad_accessory_vtable;
     if (vtable && vtable->close)
     {
@@ -981,3 +981,6 @@ joypad_8way_t joypad_get_direction(joypad_port_t port, joypad_2d_t axes)
 }
 
 /** @} */ /* joypad */
+
+/** @brief Set while the Keyboard subsystem's vertical blank read takes the Joypads' place. */
+bool __joypad_read_taken = false;

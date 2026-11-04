@@ -106,6 +106,20 @@
  */
 #define JOYBUS_COMMAND_ID_BRF_KEYBOARD_READ     0x2A
 /**
+ * @brief "BlueRetroForever Keyboard Compact Read" Joybus command identifier.
+ *
+ * The read of every frame for a keyboard whose full read (#JOYBUS_COMMAND_ID_BRF_KEYBOARD_READ)
+ * answered version 3: the modifiers and five keys, without the marker.
+ */
+#define JOYBUS_COMMAND_ID_BRF_KEYBOARD_COMPACT_READ  0x2B
+/**
+ * @brief "BlueRetroForever Keyboard and Mouse Compact Read" Joybus command identifier.
+ *
+ * #JOYBUS_COMMAND_ID_BRF_KEYBOARD_COMPACT_READ with the port's mouse: its
+ * buttons, both wheels and 12-bit motion.
+ */
+#define JOYBUS_COMMAND_ID_BRF_KEYBOARD_MOUSE_READ    0x2C
+/**
  * @brief "BlueRetroForever Command" Joybus command identifier.
  *
  * BlueRetroForever's commands from the console, on any port in any mode:
@@ -425,12 +439,24 @@ typedef struct __attribute__((packed)) joybus_cmd_n64_controller_read_port_s
  */
 /** @brief The first byte of every BlueRetroForever reply, telling it from a device that answers anything with its identity. */
 #define JOYBUS_BRF_MARKER                         0x42
-/** @brief The reply's version: 2, with HID usages and the settings byte. */
-#define JOYBUS_BRF_KEYBOARD_READ_VERSION          2
+/** @brief The reply's version: 3, with HID usages, the settings byte and the status's device bits; the port answers the compact reads. */
+#define JOYBUS_BRF_KEYBOARD_READ_VERSION          3
 /** @brief How many key codes a reply holds. */
 #define JOYBUS_BRF_KEYBOARD_READ_KEYS             10
+/** @brief How many key codes a compact read holds. */
+#define JOYBUS_BRF_KEYBOARD_COMPACT_KEYS          5
+/** @brief Status bit: a keyboard is on the port. */
+#define JOYBUS_BRF_KEYBOARD_STATUS_KEYBOARD       (1<<0)
+/** @brief Status bit: a mouse is on the port. */
+#define JOYBUS_BRF_KEYBOARD_STATUS_MOUSE          (1<<1)
 /** @brief Status bit: more keys are held than the reply holds. */
 #define JOYBUS_BRF_KEYBOARD_STATUS_EXCESS_KEYS    (1<<4)
+/** @brief Status bit (the compact reads): the settings, or keys off the Keyboard/Keypad page, changed since the last full read. */
+#define JOYBUS_BRF_KEYBOARD_STATUS_FULL_READ      (1<<5)
+/** @brief The mouse buttons in a compact read's buttons byte. */
+#define JOYBUS_BRF_MOUSE_BUTTONS                  0x1F
+/** @brief A wheel's first bit, in a compact read's buttons byte and its horizontal wheel byte. */
+#define JOYBUS_BRF_MOUSE_WHEEL_SHIFT              5
 /** @brief Settings byte: the layout (#keyboard_layout_t). */
 #define JOYBUS_BRF_KEYBOARD_SETTINGS_LAYOUT       0x07
 /** @brief Settings byte: the arrangement's bit (#keyboard_arrangement_t). */
@@ -477,6 +503,71 @@ typedef struct __attribute__((packed)) joybus_cmd_brf_keyboard_read_port_s
         uint16_t keys[JOYBUS_BRF_KEYBOARD_READ_KEYS];
     } recv;
 } joybus_cmd_brf_keyboard_read_port_t;
+
+/**
+ * @brief "BlueRetroForever Keyboard Compact Read" Joybus command structure.
+ *
+ * The keys are Keyboard/Keypad usages other than the modifiers, the first
+ * five held in the order they went down.
+ *
+ * @see #JOYBUS_COMMAND_ID_BRF_KEYBOARD_COMPACT_READ
+ */
+typedef struct __attribute__((packed)) joybus_cmd_brf_keyboard_compact_read_port_s
+{
+    /** @brief "BlueRetroForever Keyboard Compact Read" command send data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief Joybus command ID (#JOYBUS_COMMAND_ID_BRF_KEYBOARD_COMPACT_READ) */
+        uint8_t command;
+    } send;
+    /** @brief "BlueRetroForever Keyboard Compact Read" command receive data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief Status byte (@ref JOYBUS_BRF_KEYBOARD_READ) */
+        uint8_t status;
+        /** @brief The held modifiers, as HID's bitmask */
+        uint8_t modifiers;
+        /** @brief Up to five held keys, then 0 */
+        uint8_t keys[JOYBUS_BRF_KEYBOARD_COMPACT_KEYS];
+    } recv;
+} joybus_cmd_brf_keyboard_compact_read_port_t;
+
+/**
+ * @brief "BlueRetroForever Keyboard and Mouse Compact Read" Joybus command structure.
+ *
+ * The motion is the mouse's counts since the last of these reads, up to
+ * 2047 each way on each axis; what doesn't fit comes with the next.
+ *
+ * @see #JOYBUS_COMMAND_ID_BRF_KEYBOARD_MOUSE_READ
+ */
+typedef struct __attribute__((packed)) joybus_cmd_brf_keyboard_mouse_read_port_s
+{
+    /** @brief "BlueRetroForever Keyboard and Mouse Compact Read" command send data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief Joybus command ID (#JOYBUS_COMMAND_ID_BRF_KEYBOARD_MOUSE_READ) */
+        uint8_t command;
+    } send;
+    /** @brief "BlueRetroForever Keyboard and Mouse Compact Read" command receive data */
+    struct __attribute__((__packed__))
+    {
+        /** @brief Status byte (@ref JOYBUS_BRF_KEYBOARD_READ) */
+        uint8_t status;
+        /** @brief The held modifiers, as HID's bitmask */
+        uint8_t modifiers;
+        /** @brief Buttons 1 to 5 held in bits 0-4; wheel clicks in bits 5-7, signed, away from the user positive */
+        uint8_t buttons;
+        /**
+         * @brief Motion right and down, each signed 12 bits: x's bits 11-4,
+         *        then x's bits 3-0 and y's bits 11-8, then y's bits 7-0
+         */
+        uint8_t motion[3];
+        /** @brief Horizontal wheel clicks in bits 5-7, signed, right positive; bits 0-4 are 0 */
+        uint8_t hwheel;
+        /** @brief Up to five held keys, then 0 */
+        uint8_t keys[JOYBUS_BRF_KEYBOARD_COMPACT_KEYS];
+    } recv;
+} joybus_cmd_brf_keyboard_mouse_read_port_t;
 
 /**
  * @anchor JOYBUS_BRF_COMMAND
