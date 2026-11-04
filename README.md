@@ -13,10 +13,28 @@ bherdm
 
 ## Changes in this fork
 
-* Multithreading kernel fixes: thread joins and timed waits, interrupt masking, each new thread's FPU control bits, PI and DMA waits, SC64 commands from several threads, and a crash screen that no longer waits on the crashed program's locks.
-* Keyboard support (`keyboard.h`): full-size Bluetooth keyboards through [BlueRetroForever](https://github.com/bherdm/BlueRetroForever), every key of US, UK, German, French and Japanese layouts, media keys included, ten keys at once. A game that doesn't use the keyboard pays nothing for it.
-* BlueRetroForever commands (`blueretroforever.h`): pairing, status, and each port's keyboard settings, from the console.
-* Crash and debug output: a floating-point exception is reported once, debug output from interrupt handlers no longer corrupts a thread's, and an out-of-memory Z-buffer asserts instead of drawing over low RAM.
+- Multithreading kernel fixes
+- Crash and debug output fixes
+- BlueRetroForever API
+    - Pairing and disconnecting
+    - Status
+    - LED brightness
+    - Keyboard settings
+    - Sleep and wake
+    - Restart
+    - Bluetooth address, firmware version, log
+    - Firmware updates
+- Keyboard support, through BlueRetroForever
+    - US, UK, FR, DE, JP
+    - Mac, Windows/Linux
+    - Media keys
+    - Lock LEDs
+    - One per port
+- Pointer support, through BlueRetroForever
+    - Vertical and horizontal scrolling
+    - 5 buttons
+    - Raw motion
+    - One per port
 
 
 ## AI Disclaimer
