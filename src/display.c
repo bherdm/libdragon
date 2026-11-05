@@ -30,6 +30,8 @@
 #define FPS_UPDATE_FREQ      4
 
 static surface_t *surfaces;
+/** @brief Each framebuffer's block as malloc returned it, after the surfaces in their allocation */
+static void **surface_blocks;
 /** @brief Currently allocated Z-buffer (allocated for __alloc_width x __alloc_height) */
 static surface_t surf_zbuf;
 /** @brief View of zbuf with current getter dimensions (__width x __height); returned by display_get_zbuf */
@@ -396,17 +398,35 @@ void display_init( resolution_t res, bitdepth_t bit, uint32_t num_buffers, gamma
 
     apply_display_vi_config(res, bit, gamma, filters);
 
-    surfaces = malloc(sizeof(surface_t) * __num_buffers);
-    assertf(surfaces, "Out of memory");
-
-    /* Initialize buffers and set parameters */
+    /* Each framebuffer is a plain malloc, aligned to 64 bytes inside its
+       block. memalign would give the alignment's slack back to the heap,
+       where a small allocation can take it, and the hole a closed display
+       leaves would then be too small for the same memalign again. Kept in
+       the block, the slack makes each hole exactly what the same display
+       asks for when it opens again. The buffers come first, so the small
+       record after them can't split their holes. */
     tex_format_t format = bit == DEPTH_16_BPP ? FMT_RGBA16 : FMT_RGBA32;
+    uint32_t size = ROUND_UP(__height * TEX_FORMAT_PIX2BYTES(format, __width), 16);
+    void *blocks[NUM_BUFFERS];
     for (int i = 0; i < __num_buffers; i++)
     {
-        /* Set parameters necessary for drawing */
-        /* Grab a location to render to */
-        surfaces[i] = surface_alloc(format, __width, __height);
-        assertf(surfaces[i].buffer, "Out of memory");
+        /* malloc's blocks are 8-aligned, so 56 more bytes always hold a 64-aligned buffer */
+        blocks[i] = malloc(size + 64 - 8);
+        assertf(blocks[i], "Out of memory");
+    }
+
+    surfaces = malloc((sizeof(surface_t) + sizeof(void *)) * __num_buffers);
+    assertf(surfaces, "Out of memory");
+    surface_blocks = (void **)&surfaces[__num_buffers];
+
+    for (int i = 0; i < __num_buffers; i++)
+    {
+        surface_blocks[i] = blocks[i];
+        void *buf = (void *)ROUND_UP((uintptr_t)blocks[i], 64);
+
+        /* Used uncached: none of it may be in the data cache from the block's earlier use */
+        data_cache_hit_invalidate(buf, size);
+        surfaces[i] = surface_make_linear(UncachedAddr(buf), format, __width, __height);
 
         /* Baseline is blank */
         sys_hw_memset(surfaces[i].buffer, 0, __width * __height * __bitdepth);
@@ -528,10 +548,11 @@ void display_close()
         for (uint32_t i = 0; i < __alloc_buffers; i++)
         {
             /* Free framebuffer memory */
-            surface_free(&surfaces[i]);
+            free(surface_blocks[i]);
         }
         free(surfaces);
         surfaces = NULL;
+        surface_blocks = NULL;
     }
 
     __width = 0;
@@ -571,7 +592,6 @@ surface_t* display_try_get(void)
             tex_format_t fmt = __bitdepth == 2 ? FMT_RGBA16 : FMT_RGBA32;
             uint16_t stride = (uint16_t)(__width * __bitdepth);
             surfaces[next] = surface_make(buf, fmt, (uint16_t)__width, (uint16_t)__height, stride);
-            surfaces[next].flags |= SURFACE_FLAGS_OWNEDBUFFER;
             retval = &surfaces[next];
             drawing_mask |= 1U << next;
             assertf(display_queue_count < NUM_BUFFERS, "Display queue overflow");
