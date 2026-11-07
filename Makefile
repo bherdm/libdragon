@@ -49,6 +49,7 @@ LIBDRAGON_OBJS += \
 	$(BUILD_DIR)/rand.o \
 	$(BUILD_DIR)/utils.o \
 	$(BUILD_DIR)/debug.o \
+	$(BUILD_DIR)/assert_rom.o \
 	$(BUILD_DIR)/debug_write.o \
 	$(BUILD_DIR)/printf_internal.o \
 	$(BUILD_DIR)/debugcpp.o \
@@ -192,6 +193,7 @@ install: install-mk libdragon
 	install -Cv -m 0644 n64.ld $(INSTALLDIR)/$(N64_TARGET)/lib/n64.ld
 	install -Cv -m 0644 dso.ld $(INSTALLDIR)/$(N64_TARGET)/lib/dso.ld
 	install -Cv -m 0644 rsp.ld $(INSTALLDIR)/$(N64_TARGET)/lib/rsp.ld
+	install -Cv -m 0644 n64_assert_rom.ld $(INSTALLDIR)/$(N64_TARGET)/lib/n64_assert_rom.ld
 	install -Cv -m 0644 libdragonsys.a $(INSTALLDIR)/$(N64_TARGET)/lib/libdragonsys.a
 	@echo "    [INSTALL] libdragon.version"
 	mkdir -p $(INSTALLDIR)/$(N64_TARGET)/include

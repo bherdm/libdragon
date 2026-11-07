@@ -494,9 +494,19 @@ void debugf(const char *msg, ...)
 	debugfv(msg, args);
 }
 
+/** @brief An assert's text read from ROM (assert_rom.c), linked only into programs that leave them there */
+extern const char *__assert_text_rom(const char *text, int slot) __attribute__((weak));
+
 void debug_assert_func_f(const char *file, int line, const char *func, const char *failedexpr, const char *msg, ...)
 {
 	disable_interrupts();
+
+	// libdragon's own texts may be in ROM (n64_assert_rom.ld): from here on, in RAM
+	if (__assert_text_rom) {
+		file = __assert_text_rom(file, 0);
+		failedexpr = __assert_text_rom(failedexpr, 1);
+		if (msg) msg = __assert_text_rom(msg, 2);
+	}
 
 	// As first step, immediately print the assertion on stderr. This is
 	// very likely to succeed as it should not cause any further allocations

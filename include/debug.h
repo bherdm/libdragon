@@ -233,8 +233,30 @@ extern "C" {
 	 * one of the supported debugging channel.
 	 */
 	#define assertf(expr, msg, ...)   ({ \
-		if (!(expr)) debug_assert_func_f(__FILE__, __LINE__, __func__, #expr, msg, ##__VA_ARGS__); \
+		if (!(expr)) debug_assert_func_f(__ASSERT_TEXT(__FILE__), __LINE__, __func__, __ASSERT_TEXT(#expr), __ASSERT_TEXT(msg), ##__VA_ARGS__); \
 	})
+
+	/// @cond
+	#ifndef __ASSERT_TEXT
+	#ifdef __LIBDRAGON_INTERNAL_BUILD
+	// libdragon's own asserts keep their texts (file, expression, message) in
+	// .assert_texts.N sections of merged strings, one a text, so a function
+	// left out of the link leaves its texts out too: n64.ld loads them with the
+	// rest of .rodata, and a program built with N64_ROM_ASSERT_TEXTS leaves
+	// them in ROM instead, read when an assert fires (n64_assert_rom.ld). The
+	// '#' makes the assembler take what GCC adds after the flags as a comment,
+	// and aligned(1) keeps GCC from aligning each text to 8 bytes.
+	#define __ASSERT_TEXT(s) __ASSERT_TEXT_N(s, __COUNTER__)
+	#define __ASSERT_TEXT_N(s, n) __ASSERT_TEXT_I(s, n)
+	#define __ASSERT_TEXT_I(s, n) ({ \
+		static const char __assert_text[] __attribute__((aligned(1), \
+			section(".assert_texts." #n ",\"aMS\",@progbits,1#"))) = s; \
+		__assert_text; })
+	#else
+	#define __ASSERT_TEXT(s) s
+	#endif
+	#endif
+	/// @endcond
 
 #else
 	#define debug_init(ch)             ((void)(false), false)

@@ -19,6 +19,7 @@ N64_ROM_REGIONFREE ?= 1 # Set to allow booting on any console region
 N64_ROM_REGION ?= # Set to a region code (emulators will boot on a specific console region)
 N64_ROM_ELFCOMPRESS ?= 1 # Set compression level of ELF file in ROM
 N64_ROM_DSOCOMPRESS ?= 1 # Set compression level of DSOs file in ROM
+N64_ROM_ASSERT_TEXTS ?= # Set to leave libdragon's assert texts in ROM, read when an assert fires (about 12 KB less RAM; see n64_assert_rom.ld)
 N64_ROM_CONTROLLER1 ?= # Sets the type of Controller 1 in the Advanced Homebrew Header. This could influence emulator behaviour such as Ares'
 N64_ROM_CONTROLLER2 ?= # Sets the type of Controller 2 in the Advanced Homebrew Header. This could influence emulator behaviour such as Ares'
 N64_ROM_CONTROLLER3 ?= # Sets the type of Controller 3 in the Advanced Homebrew Header. This could influence emulator behaviour such as Ares'
@@ -88,7 +89,7 @@ N64_CFLAGS = $(N64_C_AND_CXX_FLAGS) -std=gnu17
 N64_CXXFLAGS = $(N64_C_AND_CXX_FLAGS) -std=gnu++17
 N64_ASFLAGS = -mtune=vr4300 -march=vr4300 -mabi=o64 -Wa,--fatal-warnings -I$(N64_INCLUDEDIR)
 N64_RSPASFLAGS = -march=mips1 -mabi=32 -Wa,--fatal-warnings -I$(N64_INCLUDEDIR)
-N64_LDFLAGS = -g -L$(N64_LIBDIR) -ldragon -lm -ldragonsys -Tn64.ld --gc-sections --wrap __do_global_ctors
+N64_LDFLAGS = -g -L$(N64_LIBDIR) -ldragon -lm -ldragonsys $(if $(N64_ROM_ASSERT_TEXTS),-Tn64_assert_rom.ld) -Tn64.ld --gc-sections --wrap __do_global_ctors
 N64_DSOLDFLAGS = --emit-relocs --unresolved-symbols=ignore-all --nmagic -T$(N64_LIBDIR)/dso.ld
 ifneq ($(filter 1 2,$(LIBDRAGON_PREVIEW)),)
 N64_C_AND_CXX_FLAGS += -DLIBDRAGON_PREVIEW=$(LIBDRAGON_PREVIEW)
@@ -150,10 +151,12 @@ RSPASFLAGS+=-MMD
 	cp $< $<.stripped
 	$(N64_STRIP) -s $<.stripped
 	$(N64_ELFCOMPRESS) -o $(dir $<) -c $(N64_ROM_ELFCOMPRESS) $<.stripped
+	$(if $(N64_ROM_ASSERT_TEXTS),$(N64_OBJCOPY) --dump-section .assert_texts=$<.assert $<)
 	@rm -f $@
 	$(N64_TOOL) $(N64_TOOLFLAGS) --output $(BUILD_DIR)/$@.tmp \
 		--align 256 $<.stripped \
 		$<.sym \
+		$(if $(N64_ROM_ASSERT_TEXTS),$<.assert) \
 		$(filter %.dfs, $^) \
 		$(filter %.msym, $^) \
 		$(N64_TOOLFILES)

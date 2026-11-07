@@ -55,6 +55,8 @@ SECTIONS {
         *(.rdata)
         *(.rodata)
         *(.rodata.*)
+        /* libdragon's assert texts, unless n64_assert_rom.ld, linked first, leaves them in ROM */
+        *(.assert_texts .assert_texts.*)
         KEEP(*(keep.rodata.*))
         *(.gnu.linkonce.r.*)
         . = ALIGN(4);
