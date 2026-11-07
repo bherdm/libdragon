@@ -374,6 +374,7 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include "printf_internal.h"
 
 static void rdpq_assert_handler(rsp_snapshot_t *state, uint16_t assert_code);
 

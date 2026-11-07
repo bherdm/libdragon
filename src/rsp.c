@@ -22,6 +22,7 @@
 #include "interrupt.h"
 #include "rdpq/rdpq_debug_internal.h"
 #include "accounting_internal.h"
+#include "printf_internal.h"
 
 /**
  * RSP crash handler ucode (rsp_crash.S)

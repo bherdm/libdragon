@@ -217,6 +217,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <malloc.h>
+#include "printf_internal.h"
 
 
 /// @cond

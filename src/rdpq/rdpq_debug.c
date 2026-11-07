@@ -18,6 +18,7 @@
 #include "utils.h"
 #include "rspq_constants.h"
 #include "rdpq_constants.h"
+#include "printf_internal.h"
 #else
 ///@cond
 #define debugf(msg, ...)  fprintf(stderr, msg, ##__VA_ARGS__)

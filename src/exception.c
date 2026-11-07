@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
+#include "printf_internal.h"
 
 /** Invalid TLS Minimum Address */
 #define TLS_INVALID_MIN (uint32_t)(KERNEL_TP_INVALID-TP_OFFSET)

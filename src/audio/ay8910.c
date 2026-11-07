@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <memory.h>
 #include "../rand_internal.h"
+#include "printf_internal.h"
 
 /** @brief Enable AY8910 tracing */
 #define AY8910_TRACE   0

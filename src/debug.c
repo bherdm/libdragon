@@ -31,6 +31,7 @@
 #include "fat.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
+#include "printf_internal.h"
 
 /**
  * @defgroup debug Debugging Support

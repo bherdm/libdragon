@@ -25,6 +25,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include "printf_internal.h"
 
 /** @brief The mode of the inspector (what caused it to be triggered). */
 enum Mode {

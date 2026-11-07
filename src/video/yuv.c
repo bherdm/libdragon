@@ -19,6 +19,7 @@
 #include "debug.h"
 #include "utils.h"
 #include <math.h>
+#include "printf_internal.h"
 
 /** @brief Internal buffer used to interleave U and V components */
 static surface_t internal_buffer;

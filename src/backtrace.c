@@ -71,6 +71,7 @@
 #include "rompak_internal.h"
 #include "dlfcn_internal.h"
 #include "symtable_internal.h"
+#include "printf_internal.h"
 
 /** @brief Enable to debug why a backtrace is wrong */
 #define BACKTRACE_DEBUG 0
