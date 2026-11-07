@@ -62,6 +62,27 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void* buff)
 	return RES_PARERR;
 }
 
+/**
+ * @brief Seconds since 1970 of a date and time, as UTC.
+ *
+ * mktime would do it, but it reads the time zone, which links newlib's
+ * time-zone code and its scanf (about 16 KB). libdragon's clock has no time
+ * zone: the RTC's date and time are UTC (see gmtime in rtc.c), so FAT's
+ * times convert with gmtime_r and this, as mktime and localtime_r did with
+ * no TZ set. A month of 0 or a day of 0 count back, as mktime's do.
+ */
+static time_t fat_time_utc(int year, int mon, int mday, int hour, int min, int sec)
+{
+	// Days since 1970-01-01, counting years from March so February ends them
+	int y = year - (mon <= 2);
+	int era = y / 400;
+	int yoe = y - era * 400;
+	int doy = (153 * (mon > 2 ? mon - 3 : mon + 9) + 2) / 5 + mday - 1;
+	int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+	long days = era * 146097L + doe - 719468;
+	return (time_t)days * 86400 + hour * 3600 + min * 60 + sec;
+}
+
 /** @brief FatFS API: read the current time from the RTC using standard C functions. */
 DWORD get_fattime(void)
 {
@@ -74,7 +95,7 @@ DWORD get_fattime(void)
 		);
 	}
   	struct tm tm;
-	localtime_r(&t, &tm);
+	gmtime_r(&t, &tm);
 	return (DWORD)(
 		(tm.tm_year - 80) << 25 |
 		(tm.tm_mon + 1) << 21 |
@@ -205,15 +226,8 @@ static int __fat_stat(char *name, struct stat *st, int volid)
 		return -1;
 	}
 	__fat_stat_fill(fno.fsize, fno.fattrib, st);
-	struct tm tm;
-	memset(&tm, 0, sizeof(struct tm));
-	tm.tm_sec = (fno.ftime & 0x1F) << 1;
-	tm.tm_min = (fno.ftime >> 5) & 0x3F;
-	tm.tm_hour = fno.ftime >> 11;
-	tm.tm_mday = fno.fdate & 0x1F;
-	tm.tm_mon = ((fno.fdate >> 5) & 0x0F) - 1;
-	tm.tm_year = (fno.fdate >> 9) + 80;
-	st->st_mtim.tv_sec = mktime(&tm);
+	st->st_mtim.tv_sec = fat_time_utc((fno.fdate >> 9) + 1980, (fno.fdate >> 5) & 0x0F, fno.fdate & 0x1F,
+		fno.ftime >> 11, (fno.ftime >> 5) & 0x3F, (fno.ftime & 0x1F) << 1);
 	st->st_mtim.tv_nsec = 0;
 	return 0;
 }
@@ -387,7 +401,7 @@ static int __fat_utimes(const char *path, const struct timeval times[2], int vol
 	
 	// Extract components
 	struct tm tm;
-	localtime_r(&t, &tm);
+	gmtime_r(&t, &tm);
 
 	// Convert to FAT date/time format
 	FILINFO fno = {0};
