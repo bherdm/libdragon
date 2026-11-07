@@ -221,16 +221,19 @@ https://github.com/buu342/N64-UNFLoader
 static void usb_findcart(void);
 static u32  usb_getaddr();
 
+static char usb_64drive_detect(void);
 static s8   usb_64drive_write(int datatype, const void* data, int size);
 static u32  usb_64drive_poll(void);
 static void usb_64drive_read(void);
 static void usb_64drive_set_extendedaddress(u8 enable);
 static u32  usb_64drive_get_baseaddr();
 
+static char usb_everdrive_detect(void);
 static s8   usb_everdrive_write(int datatype, const void* data, int size);
 static u32  usb_everdrive_poll(void);
 static void usb_everdrive_read(void);
 
+static char usb_sc64_detect(void);
 static s8   usb_sc64_write(int datatype, const void* data, int size);
 static u32  usb_sc64_poll(void);
 static void usb_sc64_read(void);
@@ -245,8 +248,33 @@ s8   (*funcPointer_write)(int datatype, const void* data, int size);
 u32  (*funcPointer_poll)(void);
 void (*funcPointer_read)(void);
 
+// One cart's USB functions, for the carts a program links (FLASHCARTS, flashcart.h)
+struct usb_driver_s
+{
+    s8   cart;
+    char (*detect)(void);
+    s8   (*write)(int datatype, const void* data, int size);
+    u32  (*poll)(void);
+    void (*read)(void);
+};
+
+const struct usb_driver_s __usb_driver_ci  = {CART_64DRIVE, usb_64drive_detect, usb_64drive_write, usb_64drive_poll, usb_64drive_read};
+const struct usb_driver_s __usb_driver_edx = {CART_EVERDRIVE, usb_everdrive_detect, usb_everdrive_write, usb_everdrive_poll, usb_everdrive_read};
+const struct usb_driver_s __usb_driver_ed  = {CART_EVERDRIVE, usb_everdrive_detect, usb_everdrive_write, usb_everdrive_poll, usb_everdrive_read};
+const struct usb_driver_s __usb_driver_sc  = {CART_SC64, usb_sc64_detect, usb_sc64_write, usb_sc64_poll, usb_sc64_read};
+
+// Every cart, in the order they're tried, unless the program names its own
+// with FLASHCARTS: then this list and the carts it leaves out aren't linked
+__attribute__((weak)) const struct usb_driver_s *const __usb_drivers[] = {
+    &__usb_driver_ci,
+    &__usb_driver_ed,
+    &__usb_driver_sc,
+    NULL,
+};
+
 // USB globals
 static s8 usb_cart = CART_NONE;
+static const struct usb_driver_s* usb_driver;
 static u8 usb_buffer_align[BUFFER_SIZE+16]; // IDO doesn't support GCC's __attribute__((aligned(x))), so this is a workaround
 static u8* usb_buffer;
 static char usb_didtimeout = FALSE;
@@ -455,26 +483,11 @@ char usb_initialize(void)
     usb_findcart();
     
     // Set the function pointers based on the flashcart
-    switch (usb_cart)
-    {
-        case CART_64DRIVE:
-            funcPointer_write = usb_64drive_write;
-            funcPointer_poll  = usb_64drive_poll;
-            funcPointer_read  = usb_64drive_read;
-            break;
-        case CART_EVERDRIVE:
-            funcPointer_write = usb_everdrive_write;
-            funcPointer_poll  = usb_everdrive_poll;
-            funcPointer_read  = usb_everdrive_read;
-            break;
-        case CART_SC64:
-            funcPointer_write = usb_sc64_write;
-            funcPointer_poll  = usb_sc64_poll;
-            funcPointer_read  = usb_sc64_read;
-            break;
-        default:
-            return 0;
-    }
+    if (usb_driver == NULL)
+        return 0;
+    funcPointer_write = usb_driver->write;
+    funcPointer_poll  = usb_driver->poll;
+    funcPointer_read  = usb_driver->read;
 
     // Send a heartbeat
     usb_sendheartbeat();
@@ -489,10 +502,10 @@ char usb_initialize(void)
 
 static void usb_findcart(void)
 {
-    u32 buff;
-    
     // Before we do anything, check that we are using an emulator
     #if CHECK_EMULATOR
+        u32 buff;
+
         // Check the RDP clock register.
         // Always zero on emulators
         if (IO_READ(0xA4100010) == 0) // DPC_CLOCK_REG in Libultra
@@ -512,52 +525,79 @@ static void usb_findcart(void)
         (*(u32*)0xA4400038) = buff;
     #endif
 
-    // Read the cartridge and check if we have a 64Drive.
-    if (usb_io_read(D64_REG_MAGIC) == D64_MAGIC)
+    // Try each linked cart in turn
+    for (const struct usb_driver_s* const* d = __usb_drivers; *d != NULL; d++)
     {
-        usb_cart = CART_64DRIVE;
-        return;
+        if ((*d)->detect())
+        {
+            usb_driver = *d;
+            usb_cart = (*d)->cart;
+            return;
+        }
     }
-    
-    // Since we didn't find a 64Drive let's assume we have an EverDrive
+}
+
+
+/*==============================
+    usb_64drive_detect
+    Checks if the game is running on a 64Drive
+    @return TRUE if it is
+==============================*/
+
+static char usb_64drive_detect(void)
+{
+    // Read the cartridge and check if we have a 64Drive.
+    return usb_io_read(D64_REG_MAGIC) == D64_MAGIC;
+}
+
+
+/*==============================
+    usb_everdrive_detect
+    Checks if the game is running on an EverDrive with USB
+    @return TRUE if it is
+==============================*/
+
+static char usb_everdrive_detect(void)
+{
+    u32 buff;
+
     // Write the key to unlock the registers, then read the version register
     usb_io_write(ED_REG_KEY, ED_REGKEY);
     buff = usb_io_read(ED_REG_VERSION);
 
     // EverDrive 2.5 not compatible
     if (buff == ED25_VERSION)
-        return;
-    
+        return FALSE;
+
     // Check if we have an EverDrive
-    if (buff == EDX_VERSION || buff == ED3_VERSION)
-    {
-        // Set the USB mode
-        usb_io_write(ED_REG_SYSCFG, 0);
-        usb_io_write(ED_REG_USBCFG, ED_USBMODE_RDNOP);
+    if (buff != EDX_VERSION && buff != ED3_VERSION)
+        return FALSE;
 
-        // If the USB unit is powered off, it means that this is a 
-        // X variant without USB support (X5).
-        if ((usb_io_read(ED_REG_USBCFG) & ED_USBSTAT_POWER) == 0)
-            return;
-        
-        // Set the cart to EverDrive
-        usb_cart = CART_EVERDRIVE;
-        return;
-    }
+    // Set the USB mode
+    usb_io_write(ED_REG_SYSCFG, 0);
+    usb_io_write(ED_REG_USBCFG, ED_USBMODE_RDNOP);
 
-    // Since we didn't find an EverDrive either let's assume we have a SC64
+    // If the USB unit is powered off, it means that this is a
+    // X variant without USB support (X5).
+    return (usb_io_read(ED_REG_USBCFG) & ED_USBSTAT_POWER) != 0;
+}
+
+
+/*==============================
+    usb_sc64_detect
+    Checks if the game is running on a SC64
+    @return TRUE if it is
+==============================*/
+
+static char usb_sc64_detect(void)
+{
     // Write the key sequence to unlock the registers, then read the identifier register
     usb_io_write(SC64_REG_KEY, SC64_KEY_RESET);
     usb_io_write(SC64_REG_KEY, SC64_KEY_UNLOCK_1);
     usb_io_write(SC64_REG_KEY, SC64_KEY_UNLOCK_2);
 
     // Check if we have a SC64
-    if (usb_io_read(SC64_REG_IDENTIFIER) == SC64_V2_IDENTIFIER)
-    {
-        // Set the cart to SC64
-        usb_cart = CART_SC64;
-        return;
-    }
+    return usb_io_read(SC64_REG_IDENTIFIER) == SC64_V2_IDENTIFIER;
 }
 
 

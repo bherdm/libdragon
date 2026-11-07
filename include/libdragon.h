@@ -32,6 +32,7 @@
 #include "console.h"
 #include "emux.h"
 #include "debug.h"
+#include "flashcart.h"
 #include "fat.h"
 #include "joybus.h"
 #include "joybus_accessory.h"

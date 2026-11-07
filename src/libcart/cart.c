@@ -258,15 +258,40 @@ static void __sd_crc16(uint64_t *dst, const uint64_t *src)
 
 int cart_type = CART_NULL;
 
+/* The carts a program links (FLASHCARTS, flashcart.h), in the order they're
+   tried: each cart's type, and its function for each call in a table of the
+   call's own, so a call the program never makes links no cart's code for it.
+   These name every cart; a program that names its own replaces them all. */
+__attribute__((weak)) const int __cart_types[] =
+    {CART_CI, CART_EDX, CART_ED, CART_SC, CART_NULL};
+__attribute__((weak)) int (*const __cart_init[])(void) =
+    {ci_init, edx_init, ed_init, sc_init};
+__attribute__((weak)) int (*const __cart_exit[])(void) =
+    {ci_exit, edx_exit, ed_exit, sc_exit};
+__attribute__((weak)) int (*const __cart_card_init[])(void) =
+    {ci_card_init, edx_card_init, ed_card_init, sc_card_init};
+__attribute__((weak)) int (*const __cart_card_rd_dram[])(void *dram, uint32_t lba, uint32_t count) =
+    {ci_card_rd_dram, edx_card_rd_dram, ed_card_rd_dram, sc_card_rd_dram};
+__attribute__((weak)) int (*const __cart_card_rd_cart[])(uint32_t cart, uint32_t lba, uint32_t count) =
+    {ci_card_rd_cart, edx_card_rd_cart, ed_card_rd_cart, sc_card_rd_cart};
+__attribute__((weak)) int (*const __cart_card_wr_dram[])(const void *dram, uint32_t lba, uint32_t count) =
+    {ci_card_wr_dram, edx_card_wr_dram, ed_card_wr_dram, sc_card_wr_dram};
+__attribute__((weak)) int (*const __cart_card_wr_cart[])(uint32_t cart, uint32_t lba, uint32_t count) =
+    {ci_card_wr_cart, edx_card_wr_cart, ed_card_wr_cart, sc_card_wr_cart};
+
+/* cart_type's place in the tables, or -1 if that cart isn't linked */
+static int __cart_index(void)
+{
+    int i;
+    for (i = 0; __cart_types[i] != CART_NULL; i++)
+    {
+        if (__cart_types[i] == cart_type) return i;
+    }
+    return -1;
+}
+
 int cart_init(void)
 {
-    static int (*const init[CART_MAX])(void) =
-    {
-        ci_init,
-        edx_init,
-        ed_init,
-        sc_init,
-    };
     int i, result;
     /* bbplayer */
     if ((IO_READ(MI_VERSION_REG) & 0xF0) == 0xB0) return -1;
@@ -280,105 +305,62 @@ int cart_init(void)
     if (!__cart_dom2) __cart_dom2 = __cart_dom1;
     if (cart_type < 0)
     {
-        for (i = 0; i < CART_MAX; i++)
+        for (i = 0; __cart_types[i] != CART_NULL; i++)
         {
-            if ((result = init[i]()) >= 0)
+            if ((result = __cart_init[i]()) >= 0)
             {
-                cart_type = i;
+                cart_type = __cart_types[i];
                 return result;
             }
         }
         return -1;
     }
-    return init[cart_type]();
+    if ((i = __cart_index()) < 0) return -1;
+    return __cart_init[i]();
 }
 
 int cart_exit(void)
 {
-    static int (*const exit[CART_MAX])(void) =
-    {
-        ci_exit,
-        edx_exit,
-        ed_exit,
-        sc_exit,
-    };
-    if (cart_type < 0) return -1;
-    return exit[cart_type]();
+    int i = __cart_index();
+    if (i < 0) return -1;
+    return __cart_exit[i]();
 }
 
 int cart_card_init(void)
 {
-    static int (*const card_init[CART_MAX])(void) =
-    {
-        ci_card_init,
-        edx_card_init,
-        ed_card_init,
-        sc_card_init,
-    };
-    if (cart_type < 0) return -1;
-    return card_init[cart_type]();
+    int i = __cart_index();
+    if (i < 0) return -1;
+    return __cart_card_init[i]();
 }
 
 int cart_card_rd_dram(void *dram, uint32_t lba, uint32_t count)
 {
-    static int (*const card_rd_dram[CART_MAX])(
-        void *dram, uint32_t lba, uint32_t count
-    ) =
-    {
-        ci_card_rd_dram,
-        edx_card_rd_dram,
-        ed_card_rd_dram,
-        sc_card_rd_dram,
-    };
-    if (cart_type < 0) return -1;
-    return card_rd_dram[cart_type](dram, lba, count);
+    int i = __cart_index();
+    if (i < 0) return -1;
+    return __cart_card_rd_dram[i](dram, lba, count);
 }
 
 char cart_card_byteswap;
 
 int cart_card_rd_cart(uint32_t cart, uint32_t lba, uint32_t count)
 {
-    static int (*const card_rd_cart[CART_MAX])(
-        uint32_t cart, uint32_t lba, uint32_t count
-    ) =
-    {
-        ci_card_rd_cart,
-        edx_card_rd_cart,
-        ed_card_rd_cart,
-        sc_card_rd_cart,
-    };
-    if (cart_type < 0) return -1;
-    return card_rd_cart[cart_type](cart, lba, count);
+    int i = __cart_index();
+    if (i < 0) return -1;
+    return __cart_card_rd_cart[i](cart, lba, count);
 }
 
 int cart_card_wr_dram(const void *dram, uint32_t lba, uint32_t count)
 {
-    static int (*const card_wr_dram[CART_MAX])(
-        const void *dram, uint32_t lba, uint32_t count
-    ) =
-    {
-        ci_card_wr_dram,
-        edx_card_wr_dram,
-        ed_card_wr_dram,
-        sc_card_wr_dram,
-    };
-    if (cart_type < 0) return -1;
-    return card_wr_dram[cart_type](dram, lba, count);
+    int i = __cart_index();
+    if (i < 0) return -1;
+    return __cart_card_wr_dram[i](dram, lba, count);
 }
 
 int cart_card_wr_cart(uint32_t cart, uint32_t lba, uint32_t count)
 {
-    static int (*const card_wr_cart[CART_MAX])(
-        uint32_t cart, uint32_t lba, uint32_t count
-    ) =
-    {
-        ci_card_wr_cart,
-        edx_card_wr_cart,
-        ed_card_wr_cart,
-        sc_card_wr_cart,
-    };
-    if (cart_type < 0) return -1;
-    return card_wr_cart[cart_type](cart, lba, count);
+    int i = __cart_index();
+    if (i < 0) return -1;
+    return __cart_card_wr_cart[i](cart, lba, count);
 }
 
 #define CI_BASE_REG             0x18000000
