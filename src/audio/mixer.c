@@ -2434,7 +2434,7 @@ void mixer_remove_event(MixerEvent cb, void *ctx) {
 			return;
 		}
 	}
-	assertf("mixer_remove_event: specified event does not exist\ncb:%p ctx:%p", (void*)cb, ctx);
+	assertf(0, "mixer_remove_event: specified event does not exist\ncb:%p ctx:%p", (void*)cb, ctx);
 }
 
 static void mixer_invoke_soft(int round_ns)
@@ -2465,7 +2465,7 @@ void mixer_remove_soft_event(MixerSoftEvent cb, void *ctx)
 			return;
 		}
 	}
-	assertf("mixer_remove_soft_event: specified event does not exist\ncb:%p ctx:%p",
+	assertf(0, "mixer_remove_soft_event: specified event does not exist\ncb:%p ctx:%p",
 		(void*)cb, ctx);
 }
 
