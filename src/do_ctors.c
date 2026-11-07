@@ -38,7 +38,19 @@ static uint32_t eh_frame_object[6];
  */
 void __attribute__((weak)) __register_frame_info(void *begin, uint32_t *ob)
 {
-	
+
+}
+
+/**
+ * @brief Unregister exception frames
+ * The placeholder's pair, for dlclose: without it, dlfcn alone would link
+ * libgcc's frame registration (about 8 KB) into a program that has no C++
+ * exceptions to unwind. A program that has them links libgcc's unwinder,
+ * whose definitions of both take over.
+ */
+void * __attribute__((weak)) __deregister_frame_info(const void *begin)
+{
+	return 0;
 }
 
 /**

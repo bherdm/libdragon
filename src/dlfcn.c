@@ -25,6 +25,7 @@
 #include "utils.h"
 #include "dlfcn_internal.h"
 #include "kernel/ktls_internal.h"
+#include "printf_internal.h"
 
 /**
  * @defgroup dl Dynamic linker subsystem
@@ -92,7 +93,7 @@ asm(
 /** @brief Function to register exception frames */
 extern void __register_frame_info(void *ptr, void *object);
 /** @brief Function to unregister exception frames */
-extern void __deregister_frame_info(void *ptr);
+extern void *__deregister_frame_info(const void *ptr);
 /** @brief Function to run atexit destructors for a module */
 extern void __cxa_finalize(void *dso);
 
