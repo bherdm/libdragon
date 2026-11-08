@@ -234,6 +234,37 @@ enum {
 #define RDPQ_CFG_AUTOSCISSOR    (1 << 3)     ///< Configuration flag: enable automatic generation of SET_SCISSOR commands on render target change
 #define RDPQ_CFG_DEFAULT        (0xFFFF)     ///< Configuration flag: default configuration
 
+/**
+ * @brief Choose the size of each of the RDP's two dynamic buffers, in bytes.
+ *
+ * rdpq writes the RDP commands it builds into two buffers in turn, each
+ * #RDPQ_DYNAMIC_BUFFER_SIZE bytes (64 KB) by default. A program that sends
+ * fewer can choose a smaller size, once, at file scope:
+ *
+ * @code
+ * RDPQ_DYNAMIC_BUFFERS(8192);
+ * @endcode
+ *
+ * When a buffer fills, the RSP moves to the other, first waiting for the RDP
+ * to be done with it: if the RDP is more than a buffer behind, the RSP waits,
+ * and so may the CPU. A multiple of 8, from 1024.
+ *
+ * The two buffers are one allocation, the second right after the first.
+ * Microcode that moves between them itself, rather than through RDPQ_Send,
+ * must find a buffer's end as RDPQ_Send does: the distance between the two
+ * is their size.
+ */
+#ifdef __cplusplus
+#define RDPQ_DYNAMIC_BUFFERS(bytes) \
+    static_assert((bytes) >= 1024 && (bytes) % 8 == 0, "RDPQ_DYNAMIC_BUFFERS: a multiple of 8, from 1024"); \
+    extern "C" const uint32_t __rdpq_dynamic_buffer_size; \
+    const uint32_t __rdpq_dynamic_buffer_size = (bytes)
+#else
+#define RDPQ_DYNAMIC_BUFFERS(bytes) \
+    _Static_assert((bytes) >= 1024 && (bytes) % 8 == 0, "RDPQ_DYNAMIC_BUFFERS: a multiple of 8, from 1024"); \
+    const uint32_t __rdpq_dynamic_buffer_size = (bytes)
+#endif
+
 ///@cond
 // Used in inline functions as part of the autosync engine. Not part of public API.
 #define AUTOSYNC_TILE(n)  (1    << (0+(n)))     // Autosync state: Bit used for tile N

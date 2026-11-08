@@ -114,8 +114,14 @@ rdpq_send_wait:
     sw rdram_cur, %lo(RDPQ_DYNAMIC_BUFFERS) + 0
     sw t1, %lo(RDPQ_DYNAMIC_BUFFERS) + 4
 
-    # Calculate new sentinel (end of buffer)
-    add sentinel, rdram_cur, RDPQ_DYNAMIC_BUFFER_SIZE
+    # Calculate new sentinel (end of buffer). The two buffers are one
+    # allocation, so the distance between them is their size: the upper
+    # one ends that far past its start, the lower one where the upper starts.
+    sub t2, rdram_cur, t1
+    bgez t2, 1f
+     add sentinel, rdram_cur, t2
+    move sentinel, t1
+1:
 
     # Run the DMA transfer now, and after that, run RSPQCmd_RdpSetBuffer via
     # tailcall. Prepare a1 for it, containing the pointer to the new buffer,

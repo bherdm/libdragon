@@ -237,8 +237,9 @@ void __rdpq_trace_fetch(bool new_buffer)
 #if RDPQ_DEBUG_DEBUG
     intdebugf("__rdpq_trace_fetch: %p-%p\n", start, end);
     extern void *rspq_rdp_dynamic_buffers[2];
+    extern const uint32_t __rdpq_dynamic_buffer_size;
     for (int i=0;i<2;i++)
-        if ((void*)start >= rspq_rdp_dynamic_buffers[i] && (void*)end <= rspq_rdp_dynamic_buffers[i]+RDPQ_DYNAMIC_BUFFER_SIZE)
+        if ((void*)start >= rspq_rdp_dynamic_buffers[i] && (void*)end <= rspq_rdp_dynamic_buffers[i]+__rdpq_dynamic_buffer_size)
             intdebugf("   -> dynamic buffer %d\n", i);
 #endif
 

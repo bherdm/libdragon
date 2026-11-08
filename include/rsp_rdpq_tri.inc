@@ -751,7 +751,13 @@ rdpq_triangle_change_buffer:
     # written later, after we return to the happy-path.
     sb prim_size, 0x00(color_dmem)
 
-    add rdram_sentinel, rdram_cur, RDPQ_DYNAMIC_BUFFER_SIZE
+    # New sentinel, as in RDPQ_Send: the buffers are adjacent, so the upper
+    # one ends a buffer past its start, the lower one where the upper starts
+    sub t2, rdram_cur, t1
+    bgez t2, 1f
+     add rdram_sentinel, rdram_cur, t2
+    move rdram_sentinel, t1
+1:
     jal RSPQCmd_RdpSetBuffer
     move a1, rdram_cur
     

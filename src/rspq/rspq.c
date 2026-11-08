@@ -386,6 +386,9 @@ volatile uint32_t *rspq_cur_sentinel;   ///< Copy of the current write sentinel 
 /** @brief Buffers that hold outgoing RDP commands (generated via RSP). */
 void *rspq_rdp_dynamic_buffers[2];
 
+/** @brief Each dynamic RDP buffer's size: #RDPQ_DYNAMIC_BUFFER_SIZE, unless the program chose with #RDPQ_DYNAMIC_BUFFERS */
+__attribute__((weak)) const uint32_t __rdpq_dynamic_buffer_size = RDPQ_DYNAMIC_BUFFER_SIZE;
+
 /** @brief RSP queue data in DMEM. */
 static rsp_queue_t rspq_data;
 
@@ -770,9 +773,15 @@ void rspq_init(void)
     rspq_switch_context(&lowpri);
 
     // Allocate the RDP dynamic buffers.
-    rspq_rdp_dynamic_buffers[0] = malloc_uncached(RDPQ_DYNAMIC_BUFFER_SIZE);
-    rspq_rdp_dynamic_buffers[1] = malloc_uncached(RDPQ_DYNAMIC_BUFFER_SIZE);
-    assertf(rspq_rdp_dynamic_buffers[0] && rspq_rdp_dynamic_buffers[1], "Out of memory");
+    // Read through volatile: GCC would fold the weak default's value here,
+    // and the program's own definition replaces it only when linking.
+    // RDPQ_DYNAMIC_BUFFERS checks the size when the program is compiled.
+    uint32_t rdp_buffer_size = *(volatile const uint32_t *)&__rdpq_dynamic_buffer_size;
+    // One allocation, the second buffer right after the first: the RSP finds
+    // a buffer's end from the distance between them (see RDPQ_Send)
+    rspq_rdp_dynamic_buffers[0] = malloc_uncached(rdp_buffer_size * 2);
+    assertf(rspq_rdp_dynamic_buffers[0], "Out of memory");
+    rspq_rdp_dynamic_buffers[1] = rspq_rdp_dynamic_buffers[0] + rdp_buffer_size;
     
     // Verify consistency of state
     int banner_offset = offsetof(rsp_queue_t, banner);
@@ -787,7 +796,7 @@ void rspq_init(void)
     rspq_data.rspq_rdp_buffers[0] = PhysicalAddr(rspq_rdp_dynamic_buffers[0]);
     rspq_data.rspq_rdp_buffers[1] = PhysicalAddr(rspq_rdp_dynamic_buffers[1]);
     rspq_data.rspq_rdp_current = rspq_data.rspq_rdp_buffers[0];
-    rspq_data.rspq_rdp_sentinel = rspq_data.rspq_rdp_buffers[0] + RDPQ_DYNAMIC_BUFFER_SIZE;
+    rspq_data.rspq_rdp_sentinel = rspq_data.rspq_rdp_buffers[0] + rdp_buffer_size;
     rspq_data.rspq_ovl_table.data_rdram[0] = PhysicalAddr(dummy_overlay_state) | (0<<24);
 
 #if RSPQ_PROFILE
@@ -845,7 +854,6 @@ void rspq_close(void)
     rspq_initialized = 0;
 
     free_uncached(rspq_rdp_dynamic_buffers[0]);
-    free_uncached(rspq_rdp_dynamic_buffers[1]);
 
     rspq_close_context(&highpri);
     rspq_close_context(&lowpri);
