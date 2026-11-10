@@ -138,4 +138,16 @@
 
     extern void usb_sendheartbeat(void);
 
+
+    /*==============================
+        usb_sc64_is_active
+        Checks whether a host can talk to the SC64's USB port: a cable
+        is in, a host has configured the port and not suspended it, and
+        the DTR line isn't holding the port in reset
+        @return 1 if a host can, 0 if not, or if the cart isn't a SC64
+                (or usb_initialize hasn't found one)
+    ==============================*/
+
+    extern char usb_sc64_is_active(void);
+
 #endif

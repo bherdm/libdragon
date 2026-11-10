@@ -182,6 +182,8 @@ https://github.com/buu342/N64-UNFLoader
 
 #define SC64_USB_WRITE_STATUS_BUSY  (1 << 31)
 #define SC64_USB_READ_STATUS_BUSY   (1 << 31)
+#define SC64_USB_READ_STATUS_RESET  (1 << 30)   // DTR holds the port in reset
+#define SC64_USB_READ_STATUS_PWRSAV (1 << 29)   // the USB chip isn't configured: no cable or host, or suspended
 
 
 /*********************************
@@ -1500,6 +1502,33 @@ char usb_sc64_execute_cmd(u8 cmd, u32 *args, u32 *result)
     if (sr & SC64_SR_CMD_ERROR)
         return TRUE;
     return FALSE;
+}
+
+
+/*==============================
+    usb_sc64_is_active
+    Checks whether a host can talk to the SC64's USB port, by the SC64
+    firmware's own rule: the USB chip is configured by a host and not
+    suspended, and the DTR line isn't holding the port in reset
+    @return TRUE if it can, FALSE if not, or if the cart isn't a SC64
+==============================*/
+
+char usb_sc64_is_active(void)
+{
+    u32 result[2];
+
+    if (usb_cart != CART_SC64)
+        return FALSE;
+
+    #ifdef LIBDRAGON
+        // From an interrupt handler while a thread is mid-command: no answer
+        if (usb_sc64_regs_unavailable())
+            return FALSE;
+    #endif
+
+    if (usb_sc64_execute_cmd(SC64_CMD_USB_READ_STATUS, NULL, result))
+        return FALSE;
+    return !(result[0] & (SC64_USB_READ_STATUS_RESET | SC64_USB_READ_STATUS_PWRSAV));
 }
 
 
