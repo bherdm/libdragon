@@ -47,12 +47,18 @@ static void timer_update_compare(timer_link_t *head, uint32_t now)
 	}
 
 	/* COMPARE must be ahead of COUNT when it is written, or the match only
-	   comes after a full wrap: give it a small lead. */
-	if (smallest < TIMER_MIN_LEAD)
-		smallest = TIMER_MIN_LEAD;
+	   comes after a full wrap, 91.6 s later. Measure the lead from COUNT read
+	   right before the write, not from `now`: getting here from the caller's
+	   read can take longer than the lead when this code is cold (more than
+	   2 µs on the console), and a deadline written that late is already
+	   behind. */
+	uint32_t deadline = now + smallest;
+	uint32_t count = TICKS_READ();
+	if (smallest != 0xFFFFFFFF && TICKS_DISTANCE(count, deadline) < TIMER_MIN_LEAD)
+		deadline = count + TIMER_MIN_LEAD;
 
 	/* set compare to shortest time left */
-	C0_WRITE_COMPARE(now + smallest);
+	C0_WRITE_COMPARE(deadline);
 }
 
 /**
