@@ -277,6 +277,7 @@ static const struct Testsuite
 	TEST_FUNC(test_kernel_mutex_1,             5, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_kernel_priority,            5, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_kernel_sleep,               5, TEST_FLAGS_NO_BENCHMARK),
+	TEST_FUNC(test_kernel_sleep_short,         5, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_kernel_libc1,               5, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_kernel_libc2,               5, TEST_FLAGS_NO_BENCHMARK),
 	TEST_FUNC(test_kernel_thread_local,        5, TEST_FLAGS_NO_BENCHMARK),

@@ -304,6 +304,14 @@ int kthread_backtrace(kthread_t *th, void *buffer, int size);
  * general thread_sleep is a better primitive if you want the current thread
  * to yield.
  *
+ * A sleep gives threads of lower priority only what is left of it once this
+ * thread has left the CPU. On the console, a sleep under about 6 µs ends
+ * before the thread leaves the CPU (its timer is already due as it is set),
+ * and a longer one gives them about 9 µs less than its length. A thread that
+ * waits in a loop of sleeps for a lower-priority one must sleep longer than
+ * that, or the other thread never runs: with sleeps of 50 µs it had about
+ * 41 µs of each.
+ *
  * @note This function requires the timer module, so #timer_init must have
  *       been called.
  *

@@ -133,6 +133,61 @@ void test_kernel_sleep(TestContext *ctx) {
 	ASSERT_EQUAL_MEM(thcalled, exp, sizeof(exp), "invalid order of threads");
 }
 
+// Short sleeps, from 1 to 100 us, on a thread above the main one, while a
+// thread below it counts: every sleep returns, none before its time, and the
+// longer ones give the thread below some of their time.
+void test_kernel_sleep_short(TestContext *ctx) {
+	timer_init();
+	DEFER(timer_close());
+
+	kernel_init();
+	DEFER(kernel_close());
+
+	volatile bool stop = false;
+	volatile uint32_t low_count = 0;
+	volatile int sleeps = 0, early = 0;
+	volatile uint32_t low_during_long = 0;
+
+	int func_low(void *arg)
+	{
+		while (!stop) low_count++;
+		return 0;
+	}
+
+	int func_sleeper(void *arg)
+	{
+		for (int round = 0; round < 3; round++) {
+			for (int us = 1; us <= 100; us++) {
+				uint32_t ticks = TICKS_FROM_US(us);
+				uint32_t count0 = low_count;
+				uint32_t t0 = TICKS_READ();
+				kthread_sleep(ticks);
+				if ((uint32_t)TICKS_DISTANCE(t0, TICKS_READ()) < ticks)
+					early++;
+				// A sleep shorter than switching away and back gives the
+				// thread below no time (see kthread_sleep)
+				if (us >= 50)
+					low_during_long += low_count - count0;
+				sleeps++;
+			}
+		}
+		return 0;
+	}
+
+	kthread_set_pri(NULL, 5);
+	kthread_t *low = kthread_new("low", 2048, 1, func_low, NULL);
+	kthread_t *sleeper = kthread_new("sleeper", 2048, 3, func_sleeper, NULL);
+
+	// Wait for the sleeper: meanwhile it and the thread below run
+	kthread_join(sleeper);
+	stop = true;
+	kthread_join(low);
+
+	ASSERT_EQUAL_SIGNED(sleeps, 300, "not every sleep returned");
+	ASSERT_EQUAL_SIGNED(early, 0, "a sleep returned before its time");
+	ASSERT(low_during_long > 0, "sleeps of 50 us and more gave the thread below no time");
+}
+
 void test_kernel_mutex_1(TestContext *ctx) {
 	timer_init();
 	DEFER(timer_close());
