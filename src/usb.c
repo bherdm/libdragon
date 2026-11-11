@@ -245,7 +245,8 @@ static void usb_sc64_read(void);
              Globals
 *********************************/
 
-// Function pointers
+// Function pointers: the generic code calls a cart only through these, so a
+// program that names its carts (FLASHCARTS) links no other cart's code
 s8   (*funcPointer_write)(int datatype, const void* data, int size);
 u32  (*funcPointer_poll)(void);
 void (*funcPointer_read)(void);
@@ -740,7 +741,7 @@ void usb_read(void* buffer, int nbytes)
     
     // Due to hardware issues, we should re-poll the 64Drive for data (which will unarm the buffer if there really isn't any more data)
     if (usb_dataleft == 0 && usb_cart == CART_64DRIVE)
-        usb_64drive_poll();
+        funcPointer_poll();
 }
 
 
@@ -760,7 +761,7 @@ void usb_skip(int nbytes)
     
         // Due to hardware issues, we should re-poll the 64Drive for data (which will unarm the buffer if there really isn't any more data)
         if (usb_cart == CART_64DRIVE)
-            usb_64drive_poll();
+            funcPointer_poll();
     }
 }
 
@@ -794,7 +795,7 @@ void usb_purge(void)
 
     // Due to hardware issues, we should re-poll the 64Drive for data (which will unarm the buffer if there really isn't any more data)
     if (usb_cart == CART_64DRIVE)
-        usb_64drive_poll();
+        funcPointer_poll();
 }
 
 
